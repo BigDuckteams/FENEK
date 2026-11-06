@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FENEK</string>
+    <string name="tile_record">Запись FENEK</string>
+    <string name="shortcut_record">Записать</string>
+    <string name="shortcut_record_long">Записать разговор</string>
+    <string name="shortcut_file">Из файла</string>
+    <string name="shortcut_file_long">Расшифровать аудиофайл</string>
+</resources>

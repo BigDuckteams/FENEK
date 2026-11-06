@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_record"
+        android:shortcutId="record"
+        android:shortcutLongLabel="@string/shortcut_record_long"
+        android:shortcutShortLabel="@string/shortcut_record">
+        <intent
+            android:action="app.fenek.action.RECORD"
+            android:targetClass="app.fenek.MainActivity"
+            android:targetPackage="app.fenek" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_file"
+        android:shortcutId="open_file"
+        android:shortcutLongLabel="@string/shortcut_file_long"
+        android:shortcutShortLabel="@string/shortcut_file">
+        <intent
+            android:action="app.fenek.action.OPEN_FILE"
+            android:targetClass="app.fenek.MainActivity"
+            android:targetPackage="app.fenek" />
+    </shortcut>
+</shortcuts>
