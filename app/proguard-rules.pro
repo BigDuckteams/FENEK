@@ -16,3 +16,8 @@
 -keepclasseswithmembers class app.fenek.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# llama.cpp bridge: libfenekllm.so binds these functions by class and method name (JNI).
+-keep class app.fenek.llm.LlamaNative {
+    native <methods>;
+}

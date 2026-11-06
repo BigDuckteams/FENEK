@@ -158,6 +158,16 @@ fun SegmentDialog(
                         .fillMaxWidth()
                         .heightIn(min = 120.dp),
                 )
+                // The language model changed this phrase: the recognized text can be brought back.
+                segment.rawText?.let { recognized ->
+                    Text(
+                        "Распознано: $recognized",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    TextButton(onClick = { text = recognized }) { Text("Вернуть распознанный текст") }
+                }
                 Text(
                     "Кто говорит",
                     style = MaterialTheme.typography.labelLarge,

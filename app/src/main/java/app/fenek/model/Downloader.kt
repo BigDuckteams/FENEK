@@ -7,7 +7,11 @@ import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 
 class DownloadException(message: String, cause: Throwable? = null) : IOException(message, cause)
@@ -44,10 +48,14 @@ internal object Downloader {
                 lastError = e
             }
         }
-        throw DownloadException(
-            "Не удалось скачать ${file.name}: ${lastError?.message ?: "нет соединения"}",
-            lastError,
-        )
+        throw DownloadException("Не удалось скачать ${file.name}: ${reason(lastError)}", lastError)
+    }
+
+    /** What went wrong, in words a user understands; a missing network is the common case. */
+    internal fun reason(error: Exception?): String = when (error) {
+        null, is UnknownHostException, is ConnectException, is NoRouteToHostException, is SocketTimeoutException ->
+            "нет соединения с интернетом"
+        else -> error.message ?: error.javaClass.simpleName
     }
 
     private suspend fun fetch(startUrl: String, partial: File, expected: Long, onBytes: (Long) -> Unit) {

@@ -8,6 +8,7 @@ import app.fenek.appContainer
 import app.fenek.data.Speaker
 import app.fenek.data.Transcript
 import app.fenek.data.defaultSpeakerName
+import app.fenek.data.withSegmentUpdated
 import app.fenek.engine.JobRequest
 import app.fenek.model.Languages
 import kotlinx.coroutines.flow.SharingStarted
@@ -64,21 +65,7 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
     }
 
     /** Fixes the text or the speaker of a phrase; an empty text deletes the phrase. */
-    fun updateSegment(index: Int, text: String, speaker: Int) = edit { t ->
-        if (index !in t.segments.indices) return@edit t
-        val segments = t.segments.toMutableList()
-        if (text.isBlank()) {
-            segments.removeAt(index)
-        } else {
-            segments[index] = segments[index].copy(text = text.trim(), speaker = speaker)
-        }
-        val speakers = if (t.speakers.none { it.id == speaker }) {
-            t.speakers + Speaker(speaker, defaultSpeakerName(speaker))
-        } else {
-            t.speakers
-        }
-        t.copy(segments = segments, speakers = speakers)
-    }
+    fun updateSegment(index: Int, text: String, speaker: Int) = edit { t -> t.withSegmentUpdated(index, text, speaker) }
 
     /**
      * Processes the same recording again with a given number of participants and replaces this

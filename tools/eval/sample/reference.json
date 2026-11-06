@@ -1,0 +1,7 @@
+{
+  "transcript": [
+    {"speaker_id": "speaker_1", "start_ms": 1250, "end_ms": 4380, "text": "Добрый день, Барсик, как твои дела?"},
+    {"speaker_id": "speaker_2", "start_ms": 4900, "end_ms": 8100, "text": "Здравствуй, Мурка, всё отлично, спасибо."},
+    {"speaker_id": "speaker_1", "start_ms": 8600, "end_ms": 12200, "text": "Пришли мне завтра отчёт о мышах."}
+  ]
+}

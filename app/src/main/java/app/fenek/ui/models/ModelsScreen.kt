@@ -62,6 +62,7 @@ fun ModelsScreen(onBack: () -> Unit) {
         val selected = when (model.kind) {
             ModelKind.ASR -> settings.asrModelId == model.id
             ModelKind.EMBEDDING -> settings.embeddingModelId == model.id
+            ModelKind.LLM -> settings.llmModelId == model.id
             ModelKind.SEGMENTATION -> true
         }
         ModelCard(
@@ -74,6 +75,7 @@ fun ModelsScreen(onBack: () -> Unit) {
                     when (model.kind) {
                         ModelKind.ASR -> it.copy(asrModelId = model.id)
                         ModelKind.EMBEDDING -> it.copy(embeddingModelId = model.id)
+                        ModelKind.LLM -> it.copy(llmModelId = model.id)
                         ModelKind.SEGMENTATION -> it
                     }
                 }
@@ -119,6 +121,8 @@ fun ModelsScreen(onBack: () -> Unit) {
             item { SectionTitle("Определение говорящих") }
             item(key = ModelCatalog.segmentation.id) { ModelItem(ModelCatalog.segmentation) }
             items(ModelCatalog.embeddingModels, key = { it.id }) { ModelItem(it) }
+            item { SectionTitle("Языковая модель") }
+            items(ModelCatalog.llmModels, key = { it.id }) { ModelItem(it) }
             item {
                 val used = ModelCatalog.all.filter { states[it.id] is ModelState.Ready }.sumOf { it.totalBytes }
                 Text(

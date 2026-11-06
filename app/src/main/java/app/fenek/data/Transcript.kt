@@ -1,6 +1,7 @@
 package app.fenek.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 @Serializable
 data class Transcript(
@@ -25,9 +26,20 @@ data class Transcript(
     /** Moments marked during the recording, ms from its start. */
     val marks: List<Long> = emptyList(),
     val favorite: Boolean = false,
+    /** The language model that corrected the text or wrote the highlights, if any did. */
+    val llmModelId: String? = null,
+    /** The phrases went through the language model (changed ones keep their recognized text). */
+    val textCorrected: Boolean = false,
+    /** Summary points written by the language model; null when it did not write them. */
+    val llmSummary: List<LlmItem>? = null,
+    /** Tasks and agreements written by the language model; null when it did not write them. */
+    val llmTasks: List<LlmItem>? = null,
 ) {
     /** When the conversation took place: "завтра" in it is counted from this day. */
     val conversationAt: Long get() = recordedAt ?: createdAt
+
+    /** Real-time factor: processing time divided by the length of the recording (lower is faster). */
+    val rtf: Double get() = if (durationMs > 0) processingMs.toDouble() / durationMs else 0.0
 
     fun speakerName(id: Int): String = speakers.firstOrNull { it.id == id }?.name ?: defaultSpeakerName(id)
 
@@ -60,7 +72,22 @@ data class Segment(
     val startMs: Long,
     val endMs: Long,
     val text: String,
+    /** The text as recognized, kept only when the language model changed [text]. */
+    val rawText: String? = null,
 )
+
+/**
+ * A sentence the language model picked for the summary or the task list. It is placed by time
+ * and speaker, not by phrase index, so it stays valid when the user deletes or edits phrases.
+ */
+@Serializable
+data class LlmItem(val startMs: Long, val speaker: Int, val text: String)
+
+/** How transcripts are written to disk and read back; unknown fields of newer versions are ignored. */
+val TranscriptJson: Json = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
 
 data class IndexedSegment(val index: Int, val segment: Segment)
 

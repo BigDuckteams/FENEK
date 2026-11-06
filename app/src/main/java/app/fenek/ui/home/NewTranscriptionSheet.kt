@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.fenek.data.AppSettings
+import app.fenek.model.DownloadPlan
 import app.fenek.model.Languages
 import app.fenek.model.ModelCatalog
 import app.fenek.model.ModelInfo
@@ -61,7 +62,6 @@ fun NewTranscriptionSheet(
     audio: PendingAudio,
     settings: AppSettings,
     modelStates: Map<String, ModelState>,
-    requiredModels: (asrModelId: String) -> List<ModelInfo>,
     onDownload: (List<ModelInfo>) -> Unit,
     onDismiss: () -> Unit,
     onStart: (numSpeakers: Int?, asrModelId: String, language: String) -> Unit,
@@ -71,7 +71,9 @@ fun NewTranscriptionSheet(
     var asrModelId by rememberSaveable { mutableStateOf(settings.asrModelId) }
     var language by rememberSaveable { mutableStateOf(settings.language) }
     val model = ModelCatalog.asr(asrModelId)
-    val missing = requiredModels(asrModelId).filter { modelStates[it.id] !is ModelState.Ready }
+    val plan = DownloadPlan.of(settings, asrModelId) { modelStates[it.id] is ModelState.Ready }
+    // Only the required models block a job; the language model is offered next to them.
+    val missing = plan.all
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -128,7 +130,7 @@ fun NewTranscriptionSheet(
             }
 
             if (missing.isNotEmpty()) {
-                MissingModels(missing, modelStates, onDownload = { onDownload(missing) })
+                MissingModels(plan, modelStates, onDownload = { onDownload(plan.all) })
             }
 
             Row(
@@ -141,7 +143,7 @@ fun NewTranscriptionSheet(
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = { onStart(numSpeakers, asrModelId, language) },
-                    enabled = missing.isEmpty(),
+                    enabled = plan.requiredMissing.isEmpty(),
                 ) { Text("Расшифровать") }
             }
         }
@@ -150,10 +152,11 @@ fun NewTranscriptionSheet(
 
 @Composable
 private fun MissingModels(
-    missing: List<ModelInfo>,
+    plan: DownloadPlan,
     states: Map<String, ModelState>,
     onDownload: () -> Unit,
 ) {
+    val missing = plan.all
     Surface(
         color = MaterialTheme.colorScheme.secondaryContainer,
         shape = MaterialTheme.shapes.medium,
@@ -163,7 +166,18 @@ private fun MissingModels(
     ) {
         Column(Modifier.padding(16.dp)) {
             val downloading = missing.mapNotNull { states[it.id] as? ModelState.Downloading }
-            Text("Нужно скачать: " + missing.joinToString { it.title }, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                (if (plan.requiredMissing.isEmpty()) "Рекомендуем скачать: " else "Нужно скачать: ") +
+                    missing.joinToString { it.title },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (plan.requiredMissing.isNotEmpty() && plan.llmMissing != null) {
+                Text(
+                    "Языковая модель нужна для правки текста и выжимки; без неё расшифровка всё равно работает.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             if (downloading.isNotEmpty()) {
                 val bytes = downloading.sumOf { it.bytes }
                 val total = downloading.sumOf { it.total }.coerceAtLeast(1)
@@ -180,7 +194,7 @@ private fun MissingModels(
                 )
             } else {
                 OutlinedButton(onClick = onDownload, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Скачать (${formatBytes(missing.sumOf { it.totalBytes })})")
+                    Text("Скачать (${formatBytes(plan.totalBytes)})")
                 }
             }
             states.filterKeys { id -> missing.any { it.id == id } }.values

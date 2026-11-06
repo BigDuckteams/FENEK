@@ -32,6 +32,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -51,11 +52,13 @@ import app.fenek.data.AppSettings
 import app.fenek.data.DiarizationQuality
 import app.fenek.model.Languages
 import app.fenek.model.ModelCatalog
+import app.fenek.model.ModelState
 import app.fenek.service.RecordTileService
 import app.fenek.ui.brand.FennecMark
 import app.fenek.ui.components.Choice
 import app.fenek.ui.components.ChoiceField
 import app.fenek.ui.components.SectionTitle
+import app.fenek.ui.components.formatBytes
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,6 +111,39 @@ fun SettingsScreen(onBack: () -> Unit, onOpenModels: () -> Unit) {
                 choices = Languages.whisper.map { (code, title) -> Choice(code, title) },
                 selectedKey = settings.language,
                 onSelect = { code -> container.settings.update { it.copy(language = code) } },
+            )
+
+            SectionTitle("Языковая модель")
+            val llm = ModelCatalog.llm(settings.llmModelId)
+            val modelStates by container.models.states.collectAsStateWithLifecycle()
+            val llmReady = modelStates[llm.id] is ModelState.Ready
+            ListItem(
+                headlineContent = { Text("Модель") },
+                supportingContent = { Text(llm.title + " · " + if (llmReady) "скачана" else "не скачана") },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable(onClick = onOpenModels),
+            )
+            SwitchItem(
+                title = "Исправлять текст",
+                checked = settings.correctText,
+                onChange = { on -> container.settings.update { it.copy(correctText = on) } },
+            )
+            SwitchItem(
+                title = "Выжимка и задачи",
+                checked = settings.llmHighlights,
+                onChange = { on -> container.settings.update { it.copy(llmHighlights = on) } },
+            )
+            if (!llmReady) {
+                Hint("Модель не скачана: правка текста и выжимка языковой моделью не работают, выжимка строится по правилам.")
+                OutlinedButton(onClick = { container.download(listOf(llm)) }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Скачать (${formatBytes(llm.totalBytes)})")
+                }
+            }
+            Hint(
+                "Правка улучшает пунктуацию и явные ошибки, но замедляет обработку; у моделей, которые сами " +
+                    "ставят знаки (GigaAM), точность она не меняет. Когда правка выключена, текст остаётся " +
+                    "ровно таким, как его распознала модель речи.",
             )
 
             SectionTitle("Определение говорящих")
@@ -220,6 +256,16 @@ private fun addTile(context: Context) {
         }
         if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
+}
+
+@Composable
+private fun SwitchItem(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable { onChange(!checked) },
+    )
 }
 
 @Composable

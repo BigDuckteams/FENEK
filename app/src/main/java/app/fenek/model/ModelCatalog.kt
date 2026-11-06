@@ -1,6 +1,6 @@
 package app.fenek.model
 
-enum class ModelKind { ASR, SEGMENTATION, EMBEDDING }
+enum class ModelKind { ASR, SEGMENTATION, EMBEDDING, LLM }
 
 enum class AsrArchitecture { WHISPER, NEMO_CTC, NEMO_TRANSDUCER, TRANSDUCER }
 
@@ -226,17 +226,57 @@ object ModelCatalog {
         files = listOf(speakerModel("3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx", 26_485_263)),
     )
 
+    /**
+     * Language models in GGUF format for the llama.cpp runtime. The model is only used after
+     * recognition (text correction, summary and tasks), so a missing one never blocks a job.
+     */
+    val qwen15 = ModelInfo(
+        id = "qwen2.5-1.5b-instruct-q4",
+        kind = ModelKind.LLM,
+        title = "Qwen2.5 1.5B Instruct",
+        summary = "Языковая модель для правки текста (пунктуация, регистр, явные ошибки) и для выжимки с задачами. " +
+            "Работает на телефоне. Нужен телефон с 4 ГБ ОЗУ и больше.",
+        languages = "Русский, английский и другие",
+        license = "Apache-2.0",
+        files = listOf(hf("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf", 1_117_320_736)),
+        recommended = true,
+    )
+
+    val qwen05 = ModelInfo(
+        id = "qwen2.5-0.5b-instruct-q4",
+        kind = ModelKind.LLM,
+        title = "Qwen2.5 0.5B Instruct",
+        summary = "Маленькая и быстрая языковая модель для слабых телефонов. Чаще ошибается, поэтому больше правок отклоняется.",
+        languages = "Русский, английский и другие",
+        license = "Apache-2.0",
+        files = listOf(hf("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "qwen2.5-0.5b-instruct-q4_k_m.gguf", 491_400_032)),
+    )
+
+    val gemma1 = ModelInfo(
+        id = "gemma-3-1b-it-q4",
+        kind = ModelKind.LLM,
+        title = "Gemma 3 1B Instruct",
+        summary = "Языковая модель Google среднего размера. Условия использования Gemma ограничивают применение.",
+        languages = "Русский, английский и другие",
+        license = "Gemma Terms of Use",
+        files = listOf(hf("unsloth/gemma-3-1b-it-GGUF", "gemma-3-1b-it-Q4_K_M.gguf", 806_058_272)),
+    )
+
     val asrModels = listOf(gigaAmRnnt, gigaAmCtc, zipformerRu, whisperBase, whisperSmall, parakeetV3)
 
     val embeddingModels = listOf(eres2net)
-    val all = asrModels + segmentation + embeddingModels
+    val llmModels = listOf(qwen15, qwen05, gemma1)
+    val all = asrModels + segmentation + embeddingModels + llmModels
 
     val defaultAsr = gigaAmRnnt
     val defaultEmbedding = eres2net
+    val defaultLlm = qwen15
 
     fun asr(id: String): ModelInfo = asrModels.firstOrNull { it.id == id } ?: defaultAsr
 
     fun embedding(id: String): ModelInfo = embeddingModels.firstOrNull { it.id == id } ?: defaultEmbedding
+
+    fun llm(id: String): ModelInfo = llmModels.firstOrNull { it.id == id } ?: defaultLlm
 }
 
 /** Languages offered for models with a selectable language (Whisper). */

@@ -12,6 +12,9 @@ import app.fenek.data.Segment
 import app.fenek.data.Speaker
 import app.fenek.data.Transcript
 import app.fenek.data.defaultSpeakerName
+import app.fenek.llm.LlmPlan
+import app.fenek.llm.LlmPostProcessor
+import app.fenek.llm.LlmStage
 import app.fenek.model.Languages
 import app.fenek.model.ModelCatalog
 import app.fenek.model.ModelInfo
@@ -42,7 +45,7 @@ data class JobRequest(
     val title: String? = null,
 )
 
-enum class Stage { PREPARING, DECODING, DIARIZING, TRANSCRIBING, SAVING }
+enum class Stage { PREPARING, DECODING, DIARIZING, TRANSCRIBING, CORRECTING, SUMMARIZING, SAVING }
 
 data class JobProgress(
     val stage: Stage,
@@ -64,9 +67,18 @@ class TranscriptionPipeline(
     private val context: Context,
     private val models: ModelManager,
     private val settings: AppSettings,
+    private val llm: LlmPostProcessor? = null,
 ) {
 
-    suspend fun run(request: JobRequest, onProgress: (JobProgress) -> Unit): Transcript {
+    /**
+     * @param keepPending stores a recoverable copy of the transcript before the language model
+     *   starts, so that a crash in the model does not lose the recognition
+     */
+    suspend fun run(
+        request: JobRequest,
+        onProgress: (JobProgress) -> Unit,
+        keepPending: (Transcript) -> Unit = {},
+    ): Transcript {
         val startedAt = System.currentTimeMillis()
         val asrModel = ModelCatalog.asr(request.asrModelId)
         val spec = requireNotNull(asrModel.asr)
@@ -74,10 +86,24 @@ class TranscriptionPipeline(
         val missing = listOf(asrModel, ModelCatalog.segmentation, embeddingModel).filterNot { models.isReady(it) }
         if (missing.isNotEmpty()) throw MissingModelsException(missing)
 
+        // The language model is optional: with no model, no mode or no processor the job is as before.
+        val llmModel = ModelCatalog.llm(settings.llmModelId)
+        val llmPlan = if (llm != null && settings.llmEnabled && models.isReady(llmModel)) {
+            LlmPlan(
+                modelId = llmModel.id,
+                modelPath = models.path(llmModel, llmModel.files.first().name),
+                modelBytes = llmModel.totalBytes,
+                correctText = settings.correctText,
+                writeHighlights = settings.llmHighlights,
+            )
+        } else {
+            null
+        }
+        val ranges = StageRanges.of(withLlm = llmPlan != null)
+
         fun report(stage: Stage, fraction: Float, done: Int = 0, total: Int = 0) {
-            val (from, to) = STAGE_RANGES.getValue(stage)
             val f = fraction.coerceIn(0f, 1f)
-            onProgress(JobProgress(stage, f, from + (to - from) * f, done, total))
+            onProgress(JobProgress(stage, f, StageRanges.overall(ranges, stage, f), done, total))
         }
 
         val workDir = File(context.cacheDir, "work").apply { mkdirs() }
@@ -163,14 +189,13 @@ class TranscriptionPipeline(
                     "%.1f s of speech".format(totalSpeech),
             )
 
-            report(Stage.SAVING, 0f)
             // Number the speakers by their first recognised phrase.
             val order = LinkedHashMap<Int, Int>()
             val numbered = segments.map { it.copy(speaker = order.getOrPut(it.speaker) { order.size }) }
             val durationMs = (pcm.durationSec * 1000).roundToLong()
             // Recordings made in the app know when they started and what was marked during them.
             val recording = request.source.takeIf { it.scheme == "file" }?.path?.let(::File)
-            return Transcript(
+            val recognized = Transcript(
                 id = request.id,
                 title = request.title ?: request.displayName.substringBeforeLast('.').ifBlank { request.displayName },
                 createdAt = System.currentTimeMillis(),
@@ -187,6 +212,17 @@ class TranscriptionPipeline(
                 recordedAt = recording?.let(RecordingNames::createdAt),
                 marks = recording?.let(RecordingMarks::read).orEmpty().filter { it <= durationMs },
             )
+            if (llmPlan == null || llm == null) {
+                report(Stage.SAVING, 0f)
+                return recognized
+            }
+            // The recognizer is closed by now; only the language model is loaded from here on.
+            keepPending(recognized)
+            val improved = llm.process(recognized, llmPlan, settings.numThreads) { stage, fraction, done, total ->
+                report(if (stage == LlmStage.CORRECTING) Stage.CORRECTING else Stage.SUMMARIZING, fraction, done, total)
+            }
+            report(Stage.SAVING, 0f)
+            return improved.copy(processingMs = System.currentTimeMillis() - startedAt)
         } catch (e: Throwable) {
             copiedAudio?.delete()
             throw e
@@ -224,13 +260,5 @@ class TranscriptionPipeline(
         const val PADDING_SECONDS = 0.1
         const val MIN_RECORDING_SECONDS = 0.3
         const val LANGUAGE_PROBE_SECONDS = 3.0
-
-        val STAGE_RANGES = mapOf(
-            Stage.PREPARING to (0f to 0.02f),
-            Stage.DECODING to (0.02f to 0.12f),
-            Stage.DIARIZING to (0.12f to 0.55f),
-            Stage.TRANSCRIBING to (0.55f to 0.99f),
-            Stage.SAVING to (0.99f to 1f),
-        )
     }
 }

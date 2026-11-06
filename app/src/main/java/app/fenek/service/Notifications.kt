@@ -198,5 +198,7 @@ fun JobProgress.statusText(): String = when (stage) {
     Stage.DECODING -> "Чтение аудио…"
     Stage.DIARIZING -> "Определение говорящих…"
     Stage.TRANSCRIBING -> if (chunksTotal > 0) "Распознавание речи: $chunksDone из $chunksTotal фраз" else "Распознавание речи…"
+    Stage.CORRECTING -> if (chunksTotal > 0) "Правка текста: $chunksDone из $chunksTotal фраз" else "Правка текста…"
+    Stage.SUMMARIZING -> "Выжимка и задачи…"
     Stage.SAVING -> "Сохранение…"
 }

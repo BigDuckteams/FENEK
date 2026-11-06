@@ -1,5 +1,6 @@
 package app.fenek.analytics
 
+import app.fenek.data.LlmItem
 import app.fenek.data.Transcript
 import java.time.DayOfWeek
 import java.time.Instant
@@ -44,8 +45,15 @@ data class Highlights(
     val summary: List<Sentence>,
     val actions: List<ActionItem>,
     val questions: List<Sentence>,
+    /** The summary was written by the language model (otherwise it is selected by rules). */
+    val summaryFromLlm: Boolean = false,
+    /** The tasks were written by the language model (otherwise they are found by rules). */
+    val actionsFromLlm: Boolean = false,
 ) {
     val isEmpty: Boolean get() = summary.isEmpty() && actions.isEmpty() && questions.isEmpty()
+
+    /** Something shown here came from the language model. */
+    val fromLlm: Boolean get() = summaryFromLlm || actionsFromLlm
 }
 
 /**
@@ -61,12 +69,21 @@ object ConversationHighlights {
     /** @param today the day of the conversation: "завтра" is counted from it */
     fun compute(transcript: Transcript, today: LocalDate): Highlights {
         val sentences = sentences(transcript)
+        // What the language model wrote during processing wins; the rules fill in what it did not.
+        val llmSummary = transcript.llmSummary?.takeIf { it.isNotEmpty() }
+        val llmTasks = transcript.llmTasks?.takeIf { it.isNotEmpty() }
         return Highlights(
-            summary = summary(sentences),
-            actions = actions(sentences, today),
+            summary = llmSummary?.map { sentenceOf(transcript, it) } ?: summary(sentences),
+            actions = llmTasks?.map { ActionItem(sentenceOf(transcript, it), Deadlines.find(it.text, today)) }
+                ?: actions(sentences, today),
             questions = sentences.filter { isQuestion(it.text) }.take(MAX_ITEMS),
+            summaryFromLlm = llmSummary != null,
+            actionsFromLlm = llmTasks != null,
         )
     }
+
+    private fun sentenceOf(transcript: Transcript, item: LlmItem): Sentence =
+        Sentence(transcript.segments.indexOfFirst { it.startMs == item.startMs }, item.speaker, item.startMs, item.text)
 
     private val sentenceEnd = Regex("(?<=[.!?…])\\s+")
     private val token = Regex("[\\p{L}\\p{N}]+(?:'\\p{L}+)?")

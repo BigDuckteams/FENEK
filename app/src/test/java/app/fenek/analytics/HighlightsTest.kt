@@ -132,4 +132,53 @@ class HighlightsTest {
         val t = transcript(0 to "Привет, как дела у проекта?", 1 to "Всё идёт по плану, релиз в пятницу.")
         assertTrue(ConversationHighlights.compute(t, today).summary.isEmpty())
     }
+
+    @Test
+    fun highlightsWrittenByTheLanguageModelWinAndAreMarked() {
+        val base = transcript(
+            0 to "Добрый день, обсудим релиз.",
+            1 to "Я подготовлю отчёт к пятнице.",
+            0 to "Договорились, жду отчёт.",
+        )
+        val t = base.copy(
+            llmSummary = listOf(app.fenek.data.LlmItem(0, 0, "Обсудили релиз.")),
+            llmTasks = listOf(app.fenek.data.LlmItem(5_000, 1, "Подготовить отчёт к пятнице.")),
+        )
+        val h = ConversationHighlights.compute(t, today)
+
+        assertEquals(listOf("Обсудили релиз."), h.summary.map { it.text })
+        assertEquals(listOf("Подготовить отчёт к пятнице."), h.actions.map { it.sentence.text })
+        assertEquals(1, h.actions.single().sentence.segmentIndex)
+        assertEquals(1, h.actions.single().sentence.speaker)
+        assertEquals(LocalDate.of(2026, 10, 30), h.actions.single().deadline?.date)
+        assertTrue(h.summaryFromLlm && h.actionsFromLlm && h.fromLlm)
+    }
+
+    @Test
+    fun withoutLanguageModelItemsTheRulesAreUsedAndNotMarked() {
+        val t = transcript(0 to "Я подготовлю отчёт к пятнице.", 1 to "Хорошо, договорились.")
+        val h = ConversationHighlights.compute(t, today)
+
+        assertTrue(h.actions.isNotEmpty())
+        assertFalse(h.fromLlm)
+    }
+
+    @Test
+    fun anEmptyLanguageModelListFallsBackToTheRules() {
+        val t = transcript(0 to "Я подготовлю отчёт к пятнице.", 1 to "Хорошо, договорились.")
+            .copy(llmSummary = emptyList(), llmTasks = emptyList())
+        val h = ConversationHighlights.compute(t, today)
+
+        assertTrue(h.actions.isNotEmpty())
+        assertFalse(h.actionsFromLlm)
+    }
+
+    @Test
+    fun anLlmItemWhosePhraseWasDeletedStillShowsWithoutAPhraseIndex() {
+        val t = transcript(0 to "Привет всем.").copy(llmTasks = listOf(app.fenek.data.LlmItem(99_000, 0, "Сделать что-то важное.")))
+        val h = ConversationHighlights.compute(t, today)
+
+        assertEquals(-1, h.actions.single().sentence.segmentIndex)
+        assertEquals(99_000L, h.actions.single().sentence.startMs)
+    }
 }

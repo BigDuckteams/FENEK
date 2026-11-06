@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.provider.CalendarContract
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,6 +46,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -124,6 +128,7 @@ import app.fenek.data.TranscriptSearch
 import app.fenek.data.Turn
 import app.fenek.export.ExportFormat
 import app.fenek.model.Languages
+import app.fenek.model.ModelCatalog
 import app.fenek.ui.components.SpeakerAvatar
 import app.fenek.ui.components.highlight
 import app.fenek.ui.theme.SpeakerColors
@@ -132,6 +137,7 @@ import app.fenek.util.pluralRu
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.ZoneId
+import java.util.Locale
 import kotlin.math.roundToInt
 
 private sealed interface TranscriptDialog {
@@ -155,6 +161,19 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
     var dialog by remember { mutableStateOf<TranscriptDialog?>(null) }
     var exportMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
+    // The format chosen for "save to file" while the system dialog is open (an index of the formats).
+    var saveFormat by rememberSaveable { mutableStateOf<Int?>(null) }
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+        val format = saveFormat?.let { ExportFormat.entries.getOrNull(it) }
+        val current = transcript
+        saveFormat = null
+        if (uri != null && format != null && current != null) {
+            scope.launch {
+                val saved = Sharing.saveTo(context, uri, current, format)
+                Toast.makeText(context, if (saved) "Файл сохранён" else "Не удалось сохранить файл", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var matchIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -270,6 +289,24 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
                                     onClick = {
                                         exportMenu = false
                                         Sharing.share(context, t, format)
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            Text(
+                                "Сохранить в файл",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                            ExportFormat.entries.forEach { format ->
+                                DropdownMenuItem(
+                                    text = { Text(format.title) },
+                                    leadingIcon = { Icon(Icons.Outlined.Save, contentDescription = null) },
+                                    onClick = {
+                                        exportMenu = false
+                                        saveFormat = format.ordinal
+                                        saveLauncher.launch(Sharing.suggestedFileName(t, format))
                                     },
                                 )
                             }
@@ -479,11 +516,20 @@ private fun HeaderCard(t: Transcript, onSpeakerClick: (Int) -> Unit) {
             InfoRow(Icons.Outlined.Event, TimeFormat.date(t.conversationAt))
             InfoRow(
                 Icons.Outlined.Schedule,
-                "Длительность ${TimeFormat.clock(t.durationMs)} · обработано за ${TimeFormat.duration(t.processingMs)}",
+                "Длительность ${TimeFormat.clock(t.durationMs)} · обработано за ${TimeFormat.duration(t.processingMs)} · " +
+                    "RTF ${String.format(Locale.ROOT, "%.2f", t.rtf)}",
             )
             InfoRow(
                 Icons.Outlined.GraphicEq,
                 t.asrModelTitle + (t.language?.let { " · " + (Languages.title(it) ?: it) } ?: ""),
+            )
+            InfoRow(
+                Icons.Outlined.AutoFixHigh,
+                if (t.textCorrected) {
+                    "Текст исправлен: " + (ModelCatalog.llmModels.firstOrNull { it.id == t.llmModelId }?.title ?: t.llmModelId.orEmpty())
+                } else {
+                    "Текст показан как распознан"
+                },
             )
             Text(
                 "Участники",
@@ -720,8 +766,8 @@ private fun InsightsCard(t: Transcript, highlights: Highlights, onPlay: (Long) -
             }
             if (!highlights.isEmpty) {
                 Text(
-                    "Подобрано автоматически по тексту. Нажмите на пункт, чтобы прослушать это место; " +
-                        "на срок — чтобы добавить задачу в календарь.",
+                    (if (highlights.fromLlm) "Написано языковой моделью по тексту. " else "Подобрано автоматически по тексту. ") +
+                        "Нажмите на пункт, чтобы прослушать это место; на срок — чтобы добавить задачу в календарь.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
@@ -891,6 +937,29 @@ private fun TurnItem(
                         )
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                 )
+                // A phrase the language model changed: a tap shows what was recognized.
+                segment.rawText?.let { recognized ->
+                    var showRecognized by rememberSaveable(index) { mutableStateOf(false) }
+                    Row(
+                        Modifier
+                            .clickable { showRecognized = !showRecognized }
+                            .padding(start = 6.dp, top = 2.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.AutoFixHigh,
+                            contentDescription = "Исправлено языковой моделью",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (showRecognized) "Распознано: $recognized" else "исправлено",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

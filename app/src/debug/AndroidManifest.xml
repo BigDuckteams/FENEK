@@ -6,5 +6,9 @@
         <activity
             android:name="app.fenek.debug.BenchActivity"
             android:exported="true" />
+        <!-- Debug builds only: runs the language model on a stored transcript and logs what it answers. -->
+        <activity
+            android:name="app.fenek.debug.LlmBenchActivity"
+            android:exported="true" />
     </application>
 </manifest>

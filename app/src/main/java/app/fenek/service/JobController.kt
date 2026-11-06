@@ -2,6 +2,7 @@ package app.fenek.service
 
 import android.content.Context
 import app.fenek.audio.AudioDecodeException
+import app.fenek.data.PendingTranscripts
 import app.fenek.data.SettingsRepository
 import app.fenek.data.TranscriptRepository
 import app.fenek.engine.JobProgress
@@ -9,6 +10,7 @@ import app.fenek.engine.JobRequest
 import app.fenek.engine.MissingModelsException
 import app.fenek.engine.Stage
 import app.fenek.engine.TranscriptionPipeline
+import app.fenek.llm.LlmPostProcessor
 import app.fenek.model.ModelManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +36,8 @@ class JobController(
     private val settings: SettingsRepository,
     private val models: ModelManager,
     private val transcripts: TranscriptRepository,
+    private val pending: PendingTranscripts,
+    private val llm: LlmPostProcessor?,
 ) {
 
     private val _state = MutableStateFlow<JobState>(JobState.Idle)
@@ -48,10 +52,14 @@ class JobController(
             WorkService.start(context)
             job = scope.launch(Dispatchers.Default) {
                 try {
-                    val pipeline = TranscriptionPipeline(context, models, settings.current)
-                    val transcript = pipeline.run(request) { progress ->
-                        _state.update { if (it is JobState.Running) it.copy(progress = progress) else it }
-                    }
+                    val pipeline = TranscriptionPipeline(context, models, settings.current, llm)
+                    val transcript = pipeline.run(
+                        request,
+                        onProgress = { progress ->
+                            _state.update { if (it is JobState.Running) it.copy(progress = progress) else it }
+                        },
+                        keepPending = pending::write,
+                    )
                     // Redoing a transcript keeps it in the favourites.
                     val previous = transcripts.get(transcript.id)
                     transcripts.save(if (previous != null) transcript.copy(favorite = previous.favorite) else transcript)
@@ -64,6 +72,9 @@ class JobController(
                     val message = describe(e)
                     _state.value = JobState.Failed(request.displayName, message)
                     Notifications.showFailed(context, request.displayName, message)
+                } finally {
+                    // The recoverable copy is only for a process that died: any normal end drops it.
+                    pending.delete(request.id)
                 }
             }
             return true

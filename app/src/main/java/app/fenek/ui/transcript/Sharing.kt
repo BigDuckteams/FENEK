@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.webkit.MimeTypeMap
 import android.widget.Toast
@@ -20,7 +21,7 @@ object Sharing {
     private val unsafeFileChars = Regex("[\\\\/:*?\"<>|\\s]+")
 
     fun share(context: Context, transcript: Transcript, format: ExportFormat) {
-        val file = exportFile(context, transcript.title, format.extension)
+        val file = exportFile(context, transcript.title + format.fileSuffix, format.extension)
         file.writeText(Exporter.render(transcript, format))
         send(context, file, format.mimeType, transcript.title, "Отправить расшифровку")
     }
@@ -34,6 +35,20 @@ object Sharing {
         send(context, copy, mime, title, "Отправить запись")
     }
 
+    /** The name proposed in the "save to file" dialog, for example "Встреча.json". */
+    fun suggestedFileName(transcript: Transcript, format: ExportFormat): String =
+        "${baseName(transcript.title + format.fileSuffix)}.${format.extension}"
+
+    /** Writes the export into a file the user picked in the system dialog; no storage permission is needed. */
+    suspend fun saveTo(context: Context, uri: Uri, transcript: Transcript, format: ExportFormat): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val output = context.contentResolver.openOutputStream(uri, "wt") ?: return@runCatching false
+                output.use { it.write(Exporter.render(transcript, format).toByteArray(Charsets.UTF_8)) }
+                true
+            }.getOrDefault(false)
+        }
+
     fun copyText(context: Context, transcript: Transcript) {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(ClipData.newPlainText(transcript.title, Exporter.plainText(transcript)))
@@ -43,10 +58,11 @@ object Sharing {
         }
     }
 
+    private fun baseName(title: String): String = title.replace(unsafeFileChars, "_").trim('_').take(80).ifBlank { "fenek" }
+
     private fun exportFile(context: Context, title: String, extension: String): File {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val baseName = title.replace(unsafeFileChars, "_").trim('_').take(80).ifBlank { "fenek" }
-        return File(dir, "$baseName.$extension")
+        return File(dir, "${baseName(title)}.$extension")
     }
 
     private fun send(context: Context, file: File, mimeType: String, title: String, chooserTitle: String) {

@@ -13,3 +13,6 @@
 /app/libs/*.aar
 /app/libs/*.part
 /dist/
+# Fetched by app/build.gradle.kts (pinned release of llama.cpp)
+/app/src/main/cpp/llama.cpp/
+/app/src/main/cpp/llama.cpp.part/

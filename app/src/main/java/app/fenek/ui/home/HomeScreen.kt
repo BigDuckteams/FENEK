@@ -79,6 +79,7 @@ import app.fenek.appContainer
 import app.fenek.data.Transcript
 import app.fenek.data.TranscriptSearch
 import app.fenek.engine.JobRequest
+import app.fenek.model.DownloadPlan
 import app.fenek.model.ModelInfo
 import app.fenek.model.ModelState
 import app.fenek.record.RecorderState
@@ -135,6 +136,20 @@ fun HomeScreen(
         }
     }
 
+    // The previous run died inside the language model: it was switched off, say so once. The effect
+    // must not depend on the flag it resets, or the snackbar would be cancelled as soon as it appears.
+    LaunchedEffect(Unit) {
+        container.llmCrashNotice.collect { crashed ->
+            if (crashed) {
+                container.llmCrashNotice.value = false
+                snackbar.showSnackbar(
+                    "Языковая модель отключена: прошлый запуск завершился сбоем в ней. Включить её снова можно в настройках.",
+                    duration = SnackbarDuration.Long,
+                )
+            }
+        }
+    }
+
     val request by requests.collectAsStateWithLifecycle()
     LaunchedEffect(request) {
         when (val r = request) {
@@ -188,7 +203,6 @@ fun HomeScreen(
             audio = audio,
             settings = settings,
             modelStates = modelStates,
-            requiredModels = { container.requiredModels(it) },
             onDownload = { container.download(it) },
             onDismiss = { pending = null },
             onStart = { numSpeakers, asrModelId, language ->
@@ -256,8 +270,7 @@ fun HomeScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        val required = remember(settings) { container.requiredModels() }
-        val missing = required.filter { modelStates[it.id] !is ModelState.Ready }
+        val plan = remember(settings, modelStates) { DownloadPlan.of(settings) { modelStates[it.id] is ModelState.Ready } }
         val runningSource = (jobState as? JobState.Running)?.request?.source?.path
         val untranscribed = recordings.filter { recording ->
             val path = recording.file.absolutePath
@@ -288,12 +301,12 @@ fun HomeScreen(
             (recorderState as? RecorderState.Active)?.let { active ->
                 item(key = "recording") { RecordingBanner(active, onOpen = onOpenRecorder) }
             }
-            if (missing.isNotEmpty()) {
+            if (!plan.isEmpty) {
                 item(key = "setup") {
                     ModelSetupCard(
-                        missing = missing,
+                        plan = plan,
                         states = modelStates,
-                        onDownload = { container.download(missing) },
+                        onDownload = { container.download(plan.all) },
                         onChooseModels = onOpenModels,
                     )
                 }
@@ -461,7 +474,7 @@ private fun RecordingCard(recording: Recording, onTranscribe: () -> Unit, onShar
 
 @Composable
 private fun ModelSetupCard(
-    missing: List<ModelInfo>,
+    plan: DownloadPlan,
     states: Map<String, ModelState>,
     onDownload: () -> Unit,
     onChooseModels: () -> Unit,
@@ -471,14 +484,23 @@ private fun ModelSetupCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FennecMark(Modifier.size(36.dp))
                 Spacer(Modifier.width(12.dp))
-                Text("Скачайте модели для работы офлайн", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (plan.requiredMissing.isEmpty()) "Скачайте языковую модель" else "Скачайте модели для работы офлайн",
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
             Text(
-                "Распознавание речи и определение говорящих выполняются прямо на телефоне — " +
-                    "записи никуда не отправляются. Модели скачиваются один раз.",
+                if (plan.requiredMissing.isEmpty()) {
+                    "Языковая модель исправляет пунктуацию и явные ошибки и пишет выжимку с задачами. " +
+                        "Без неё расшифровка работает, а выжимка строится по правилам."
+                } else {
+                    "Распознавание речи, определение говорящих и языковая модель работают прямо на телефоне — " +
+                        "записи никуда не отправляются. Интернет нужен один раз, чтобы скачать модели."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp),
             )
+            val missing = plan.all
             missing.forEach { model ->
                 val state = states[model.id]
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -514,8 +536,15 @@ private fun ModelSetupCard(
                 )
             }
             Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                val failed = missing.any { states[it.id] is ModelState.Failed }
                 Button(onClick = onDownload, enabled = downloading.size < missing.size) {
-                    Text("Скачать (${formatBytes(missing.sumOf { it.totalBytes })})")
+                    Text(
+                        when {
+                            failed -> "Повторить (${formatBytes(plan.totalBytes)})"
+                            plan.requiredMissing.isEmpty() -> "Скачать языковую модель (${formatBytes(plan.totalBytes)})"
+                            else -> "Скачать (${formatBytes(plan.totalBytes)})"
+                        },
+                    )
                 }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onChooseModels) { Text("Выбрать модели") }

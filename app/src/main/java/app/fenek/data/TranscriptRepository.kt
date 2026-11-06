@@ -14,17 +14,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import java.io.File
 
 /** Transcripts stored as one JSON file each in the app's private storage. */
-class TranscriptRepository(private val context: Context, scope: CoroutineScope) {
+class TranscriptRepository(
+    private val context: Context,
+    scope: CoroutineScope,
+    private val pending: PendingTranscripts,
+) {
 
     private val dir = File(context.filesDir, "transcripts")
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
+    private val json = TranscriptJson
     private val mutex = Mutex()
 
     /** All transcripts, newest first; null until loaded from disk. */
@@ -38,7 +38,12 @@ class TranscriptRepository(private val context: Context, scope: CoroutineScope) 
                 val loaded = dir.listFiles { file -> file.extension == "json" }.orEmpty().mapNotNull { file ->
                     runCatching { json.decodeFromString(Transcript.serializer(), file.readText()) }.getOrNull()
                 }
-                _items.value = loaded.sortedByDescending { it.createdAt }
+                // A job that died inside the language model left its recognized transcript behind.
+                val recovered = pending.recover(loaded)
+                recovered.forEach { runCatching { write(it) } }
+                val all = loaded.filterNot { old -> recovered.any { it.id == old.id } } + recovered
+                // One transcript per id: two files with the same id (a copied file) would crash the list.
+                _items.value = all.sortedByDescending { it.createdAt }.distinctBy { it.id }
             }
         }
     }

@@ -51,8 +51,8 @@ class ExporterTest {
     }
 
     @Test
-    fun jsonContainsUtterancesWithSpeakerNames() {
-        val json = Exporter.json(transcript)
+    fun extendedJsonContainsUtterancesWithSpeakerNames() {
+        val json = Exporter.extendedJson(transcript)
         assertTrue(json, json.contains("\"speaker\": \"Анна\""))
         assertTrue(json, json.contains("\"startTime\": \"00:00:04\""))
     }
@@ -105,5 +105,19 @@ class ExporterTest {
         val samples = FloatArray(16_000) { if (it in 9_000 until 10_000) 0.001f else 0.5f }
         val index = AudioMath.quietestIndex(samples, 400)
         assertTrue("index=$index", index in 9_000 until 10_000)
+    }
+
+    @Test
+    fun markdownUsesTheHighlightsWrittenByTheLanguageModel() {
+        val withLlm = transcript.copy(
+            segments = transcript.segments + Segment(1, 8_000, 12_000, "Я подготовлю отчёт к пятнице."),
+            llmSummary = listOf(app.fenek.data.LlmItem(1_000, 0, "Поздоровались и начали разговор.")),
+            llmTasks = listOf(app.fenek.data.LlmItem(8_000, 1, "Подготовить отчёт к пятнице.")),
+        )
+        val md = Exporter.markdown(withLlm)
+
+        assertTrue(md, md.contains("## Коротко\n\n- Поздоровались и начали разговор. `00:00:01`"))
+        assertTrue(md, md.contains("- [ ] Подготовить отчёт к пятнице. — Спикер 2"))
+        assertTrue(md, md.contains("срок: "))
     }
 }

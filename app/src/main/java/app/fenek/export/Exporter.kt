@@ -4,17 +4,28 @@ import app.fenek.analytics.ConversationAnalytics
 import app.fenek.analytics.ConversationHighlights
 import app.fenek.data.Transcript
 import app.fenek.model.Languages
+import app.fenek.model.ModelCatalog
 import app.fenek.util.TimeFormat
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.math.roundToInt
 
-enum class ExportFormat(val extension: String, val mimeType: String, val title: String) {
+enum class ExportFormat(
+    val extension: String,
+    val mimeType: String,
+    val title: String,
+    /** Added to the file name before the extension, to tell formats with the same extension apart. */
+    val fileSuffix: String = "",
+) {
     TXT("txt", "text/plain", "Текст диалога (.txt)"),
     MD("md", "text/markdown", "Заметка Markdown (.md)"),
     SRT("srt", "application/x-subrip", "Субтитры SRT (.srt)"),
     VTT("vtt", "text/vtt", "Субтитры WebVTT (.vtt)"),
-    JSON("json", "application/json", "Структурированный JSON (.json)"),
+
+    /** The schema of the task: `{"transcript": [{speaker_id, start_ms, end_ms, text}]}`. */
+    JSON("json", "application/json", "JSON расшифровки (.json)"),
+    EXTENDED_JSON("json", "application/json", "Расширенный JSON (.json)", fileSuffix = "-extended"),
 }
 
 /** Renders a transcript in the export formats. */
@@ -25,12 +36,18 @@ object Exporter {
         encodeDefaults = true
     }
 
+    private val taskJson = Json {
+        prettyPrint = true
+        prettyPrintIndent = "  "
+    }
+
     fun render(transcript: Transcript, format: ExportFormat): String = when (format) {
         ExportFormat.TXT -> plainText(transcript)
         ExportFormat.MD -> markdown(transcript)
         ExportFormat.SRT -> srt(transcript)
         ExportFormat.VTT -> vtt(transcript)
-        ExportFormat.JSON -> json(transcript)
+        ExportFormat.JSON -> taskJson(transcript)
+        ExportFormat.EXTENDED_JSON -> extendedJson(transcript)
     }
 
     /** A note for Obsidian, Notion and the like: summary, tasks and questions on top, then the dialogue. */
@@ -133,14 +150,37 @@ object Exporter {
         }
     }
 
-    fun json(t: Transcript): String = json.encodeToString(
+    /**
+     * The format of the task: one entry per phrase in time order, speakers as `speaker_1`,
+     * `speaker_2`, … (numbered like the participants, renaming never changes them) and integer
+     * milliseconds. Nothing else is written, so a strict reader of the schema accepts it.
+     */
+    fun taskJson(t: Transcript): String = taskJson.encodeToString(
+        TaskDocument.serializer(),
+        TaskDocument(
+            transcript = t.segments.sortedBy { it.startMs }.map { s ->
+                TaskUtterance(
+                    speakerId = "speaker_${s.speaker + 1}",
+                    startMs = s.startMs,
+                    endMs = maxOf(s.endMs, s.startMs),
+                    text = s.text,
+                )
+            },
+        ),
+    )
+
+    fun extendedJson(t: Transcript): String = json.encodeToString(
         ExportDocument.serializer(),
         ExportDocument(
             title = t.title,
             created = TimeFormat.shortDate(t.createdAt),
             durationSeconds = t.durationMs / 1000.0,
+            processingSeconds = t.processingMs / 1000.0,
+            rtf = t.rtf,
             source = t.sourceName,
             model = t.asrModelTitle,
+            languageModel = t.llmModelId?.takeIf { t.textCorrected || t.llmSummary != null || t.llmTasks != null }
+                ?.let { id -> ModelCatalog.llmModels.firstOrNull { it.id == id }?.title ?: id },
             language = t.language?.let { Languages.title(it) ?: it },
             speakers = t.activeSpeakers().map { ExportSpeaker(it.id + 1, it.name) },
             marks = t.marks.map { it / 1000.0 },
@@ -152,6 +192,7 @@ object Exporter {
                     end = s.endMs / 1000.0,
                     startTime = TimeFormat.stamp(s.startMs),
                     text = s.text,
+                    rawText = s.rawText,
                 )
             },
         ),
@@ -162,8 +203,12 @@ object Exporter {
         val title: String,
         val created: String,
         val durationSeconds: Double,
+        val processingSeconds: Double,
+        val rtf: Double,
         val source: String,
         val model: String,
+        /** The language model that corrected the text or wrote the highlights, if one did. */
+        val languageModel: String?,
         val language: String?,
         val speakers: List<ExportSpeaker>,
         /** Moments marked during the recording, seconds. */
@@ -181,6 +226,19 @@ object Exporter {
         val start: Double,
         val end: Double,
         val startTime: String,
+        val text: String,
+        /** The text as recognized, when the language model changed it. */
+        val rawText: String?,
+    )
+
+    @Serializable
+    private data class TaskDocument(val transcript: List<TaskUtterance>)
+
+    @Serializable
+    private data class TaskUtterance(
+        @SerialName("speaker_id") val speakerId: String,
+        @SerialName("start_ms") val startMs: Long,
+        @SerialName("end_ms") val endMs: Long,
         val text: String,
     )
 }
