@@ -9,11 +9,15 @@ import app.fenek.data.Speaker
 import app.fenek.data.Transcript
 import app.fenek.data.defaultSpeakerName
 import app.fenek.data.withSegmentUpdated
+import app.fenek.engine.FragmentRecognizer
 import app.fenek.engine.JobRequest
 import app.fenek.model.Languages
 import app.fenek.service.Enqueued
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -23,12 +27,15 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
 
     private val repository = app.appContainer.transcripts
     private val jobs = app.appContainer.jobs
+    private val fragmentRecognizer = FragmentRecognizer(app, app.appContainer.models, app.appContainer.settings)
 
     val transcript: StateFlow<Transcript?> = repository.items
         .map { list -> list?.firstOrNull { it.id == id } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, repository.get(id))
 
     val player = AudioPlayer(app)
+    private val _retranscribing = MutableStateFlow<Int?>(null)
+    val retranscribing: StateFlow<Int?> = _retranscribing.asStateFlow()
     private var loadedAudio: String? = null
 
     init {
@@ -67,6 +74,37 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
 
     /** Fixes the text or the speaker of a phrase; an empty text deletes the phrase. */
     fun updateSegment(index: Int, text: String, speaker: Int) = edit { t -> t.withSegmentUpdated(index, text, speaker) }
+
+    fun retranscribeSegment(index: Int, onResult: (String?) -> Unit) {
+        if (_retranscribing.value != null) return
+        val original = transcript.value?.segments?.getOrNull(index) ?: run {
+            onResult("Фраза не найдена")
+            return
+        }
+        _retranscribing.value = index
+        player.pause()
+        viewModelScope.launch {
+            val error = try {
+                val text = fragmentRecognizer.recognize(requireNotNull(transcript.value), index)
+                repository.update(id) { current ->
+                    val segment = current.segments.getOrNull(index)
+                    if (segment != null && segment.startMs == original.startMs && segment.endMs == original.endMs) {
+                        current.withSegmentUpdated(index, text, segment.speaker)
+                    } else {
+                        current
+                    }
+                }
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.message ?: "Не удалось распознать фразу"
+            } finally {
+                _retranscribing.value = null
+            }
+            onResult(error)
+        }
+    }
 
     /**
      * Processes the same recording again with a given number of participants and replaces this

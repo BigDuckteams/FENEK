@@ -17,6 +17,17 @@ The system SHALL let the user see and restore the originally recognized text of 
 - **WHEN** a phrase has no stored recognized text
 - **THEN** the restore action is not offered
 
+### Requirement: Recognize one phrase again
+The system SHALL offer "Распознать фразу заново" in the phrase dialog when the original recording is available, using the transcript's recognition model and language without changing the phrase's speaker or timestamps.
+
+#### Scenario: Successful retry
+- **WHEN** recognition returns non-empty text
+- **THEN** only the selected phrase's text changes and every other phrase stays unchanged
+
+#### Scenario: Failure
+- **WHEN** the recording or model is unavailable or recognition returns no speech
+- **THEN** the existing transcript is left unchanged and an error is shown
+
 ### Requirement: Manual edits become the text of record
 The system SHALL treat text typed by the user as final: it SHALL NOT be corrected by the LLM later, and the recognized text of that phrase SHALL stay available for restoring.
 

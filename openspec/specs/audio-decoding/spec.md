@@ -82,3 +82,18 @@ The system SHALL keep a file chosen in the system file picker in place when read
 #### Scenario: Persistable access refused
 - **WHEN** persistable read permission cannot be taken
 - **THEN** the file is copied into app storage before processing
+
+### Requirement: Optional audio cleanup
+When "Очищать шумную запись" is enabled, the system SHALL remove DC offset and low-frequency rumble, smoothly attenuate low-level noise in pauses and normalize quiet recordings with gain capped at 3× before diarization and recognition. The default SHALL be off so clean input is not altered.
+
+#### Scenario: Bounded memory
+- **WHEN** cleanup runs on a long recording
+- **THEN** samples are processed in bounded chunks and normalization uses one gain computed for the whole file
+
+#### Scenario: Cleanup disabled
+- **WHEN** the setting is off
+- **THEN** the decoded PCM goes directly to diarization without a second processing pass
+
+#### Scenario: Temporary files
+- **WHEN** processing finishes, fails or is cancelled
+- **THEN** both decoded and enhanced temporary PCM files are deleted

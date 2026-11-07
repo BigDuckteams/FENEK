@@ -29,6 +29,8 @@ data class AppSettings(
     val llmHighlights: Boolean = true,
     /** Recognition language for models that support a choice. */
     val language: String = Languages.AUTO,
+    /** Optional rumble/noise cleanup; off by default to keep clean-record recognition unchanged. */
+    val enhanceAudio: Boolean = false,
     val diarizationQuality: DiarizationQuality = DiarizationQuality.BALANCED,
     /** 0 = merge similar voices, 1 = split them into separate speakers. */
     val speakerSeparation: Float = 0.5f,
@@ -96,6 +98,7 @@ class SettingsRepository(private val storage: SettingsStorage) {
                     KEY_CORRECT_TEXT to updated.correctText,
                     KEY_LLM_HIGHLIGHTS to updated.llmHighlights,
                     KEY_LANGUAGE to updated.language,
+                    KEY_ENHANCE_AUDIO to updated.enhanceAudio,
                     KEY_QUALITY to updated.diarizationQuality.name,
                     KEY_SEPARATION to updated.speakerSeparation,
                     KEY_THREADS to updated.numThreads,
@@ -114,6 +117,7 @@ class SettingsRepository(private val storage: SettingsStorage) {
             correctText = storage.getBoolean(KEY_CORRECT_TEXT, defaults.correctText),
             llmHighlights = storage.getBoolean(KEY_LLM_HIGHLIGHTS, defaults.llmHighlights),
             language = storage.getString(KEY_LANGUAGE) ?: defaults.language,
+            enhanceAudio = storage.getBoolean(KEY_ENHANCE_AUDIO, defaults.enhanceAudio),
             diarizationQuality = storage.getString(KEY_QUALITY)
                 ?.let { name -> DiarizationQuality.entries.firstOrNull { it.name == name } }
                 ?: defaults.diarizationQuality,
@@ -129,6 +133,7 @@ class SettingsRepository(private val storage: SettingsStorage) {
         const val KEY_CORRECT_TEXT = "llm_correct_text"
         const val KEY_LLM_HIGHLIGHTS = "llm_highlights"
         const val KEY_LANGUAGE = "language"
+        const val KEY_ENHANCE_AUDIO = "enhance_audio"
         const val KEY_QUALITY = "diarization_quality"
         const val KEY_SEPARATION = "speaker_separation"
         const val KEY_THREADS = "threads"

@@ -74,4 +74,15 @@ class TranscriptEditsTest {
         val edited = transcript.withSegmentUpdated(1, "Другое.", 1)
         assertEquals(transcript.segments[0], edited.segments[0])
     }
+
+    @Test
+    fun repeatedRecognitionOnlyChangesTheText() {
+        val edited = transcript.withSegmentUpdated(0, "Привет, как дела?", 0)
+
+        assertEquals(transcript.segments[0].startMs, edited.segments[0].startMs)
+        assertEquals(transcript.segments[0].endMs, edited.segments[0].endMs)
+        assertEquals(transcript.segments[0].speaker, edited.segments[0].speaker)
+        assertEquals(transcript.segments[0].rawText, edited.segments[0].rawText)
+        assertEquals(transcript.segments[1], edited.segments[1])
+    }
 }

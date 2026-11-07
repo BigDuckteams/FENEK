@@ -65,6 +65,25 @@ The system SHALL let the user change the text and the speaker of a phrase (opene
 - **WHEN** an edit refers to a phrase that no longer exists
 - **THEN** the transcript is left unchanged
 
+### Requirement: Recognize one phrase again
+The system SHALL offer "Распознать фразу заново" in the phrase dialog when the original recording is available, and SHALL recognize only that phrase with the transcript's recognition model and language, a 250 ms audio context on each side and the current audio-cleanup setting.
+
+#### Scenario: Successful retry
+- **WHEN** recognition returns non-empty text
+- **THEN** only the selected phrase's text changes; its speaker and timestamps and every other phrase stay unchanged
+
+#### Scenario: Corrected phrase
+- **WHEN** a phrase corrected by the language model is recognized again
+- **THEN** the newly recognized text replaces the current text and the originally recognized text remains restorable
+
+#### Scenario: Missing audio or model
+- **WHEN** the recording or recognition model is unavailable
+- **THEN** the existing transcript is left unchanged and a specific error is shown
+
+#### Scenario: Empty result or stale phrase
+- **WHEN** recognition returns no speech or the phrase no longer has the original timestamps
+- **THEN** the existing text is left unchanged
+
 ### Requirement: Edits are saved immediately
 The system SHALL persist every edit as soon as it is made.
 

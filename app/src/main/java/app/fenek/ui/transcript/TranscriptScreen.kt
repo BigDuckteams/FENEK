@@ -158,6 +158,7 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
     }
     val transcript by vm.transcript.collectAsStateWithLifecycle()
     val player by vm.player.state.collectAsStateWithLifecycle()
+    val retranscribing by vm.retranscribing.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<TranscriptDialog?>(null) }
     var exportMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -400,7 +401,14 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             item(key = "header") {
-                HeaderCard(t, onSpeakerClick = { dialog = TranscriptDialog.EditSpeaker(it) })
+                HeaderCard(
+                    t = t,
+                    onSpeakerClick = { dialog = TranscriptDialog.EditSpeaker(it) },
+                    onSaveJson = {
+                        saveFormat = ExportFormat.JSON.ordinal
+                        saveLauncher.launch(Sharing.suggestedFileName(t, ExportFormat.JSON))
+                    },
+                )
             }
             if (showInsights) {
                 item(key = "insights") {
@@ -493,10 +501,20 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
                 SegmentDialog(
                     transcript = t,
                     segment = segment,
+                    retranscribing = retranscribing == d.index,
                     onDismiss = { dialog = null },
                     onSave = { text, speaker ->
                         vm.updateSegment(d.index, text, speaker)
                         dialog = null
+                    },
+                    onRetranscribe = {
+                        vm.retranscribeSegment(d.index) { error ->
+                            Toast.makeText(
+                                context,
+                                error ?: "Фраза распознана заново",
+                                if (error == null) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+                            ).show()
+                        }
                     },
                 )
             }
@@ -507,12 +525,17 @@ fun TranscriptScreen(id: String, onBack: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HeaderCard(t: Transcript, onSpeakerClick: (Int) -> Unit) {
+private fun HeaderCard(t: Transcript, onSpeakerClick: (Int) -> Unit, onSaveJson: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.padding(bottom = 8.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
+            TextButton(onClick = onSaveJson, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Save, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Сохранить JSON расшифровки")
+            }
             InfoRow(Icons.Outlined.Event, TimeFormat.date(t.conversationAt))
             InfoRow(
                 Icons.Outlined.Schedule,

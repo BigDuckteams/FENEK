@@ -17,6 +17,7 @@ class SettingsRepositoryTest {
         assertFalse(settings.correctText)
         assertTrue(settings.llmHighlights)
         assertTrue(settings.llmEnabled)
+        assertFalse(settings.enhanceAudio)
         assertEquals(DiarizationQuality.BALANCED, settings.diarizationQuality)
         assertEquals(0.5f, settings.speakerSeparation, 0f)
     }
@@ -24,11 +25,14 @@ class SettingsRepositoryTest {
     @Test
     fun changesSurviveARestart() {
         val storage = InMemorySettingsStorage()
-        SettingsRepository(storage).update { it.copy(correctText = true, llmHighlights = false, llmModelId = ModelCatalog.qwen05.id) }
+        SettingsRepository(storage).update {
+            it.copy(correctText = true, llmHighlights = false, llmModelId = ModelCatalog.qwen05.id, enhanceAudio = true)
+        }
 
         val reopened = SettingsRepository(storage).current
         assertTrue(reopened.correctText)
         assertFalse(reopened.llmHighlights)
+        assertTrue(reopened.enhanceAudio)
         assertEquals(ModelCatalog.qwen05.id, reopened.llmModelId)
     }
 

@@ -1,0 +1,52 @@
+{
+  "transcript": [
+    {
+      "speaker_id": "speaker_1",
+      "start_ms": 680,
+      "end_ms": 5000,
+      "text": "Алло, здравствуйте. Это Анна из бухгалтерии."
+    },
+    {
+      "speaker_id": "speaker_2",
+      "start_ms": 6640,
+      "end_ms": 9640,
+      "text": "Да, слушаю вас, Анна."
+    },
+    {
+      "speaker_id": "speaker_1",
+      "start_ms": 11440,
+      "end_ms": 14580,
+      "text": "Мне нужны подписанные документы за октябрь."
+    },
+    {
+      "speaker_id": "speaker_2",
+      "start_ms": 16220,
+      "end_ms": 20380,
+      "text": "Я отправлю их вам по почте сегодня до обеда."
+    },
+    {
+      "speaker_id": "speaker_1",
+      "start_ms": 22160,
+      "end_ms": 28000,
+      "text": "Спасибо. И ещё пришлите, пожалуйста, акт сверки."
+    },
+    {
+      "speaker_id": "speaker_2",
+      "start_ms": 29740,
+      "end_ms": 33140,
+      "text": "Конечно, а кто же будет в письме?"
+    },
+    {
+      "speaker_id": "speaker_1",
+      "start_ms": 35040,
+      "end_ms": 36240,
+      "text": "Тогда до связи."
+    },
+    {
+      "speaker_id": "speaker_2",
+      "start_ms": 37920,
+      "end_ms": 39180,
+      "text": "До свидания."
+    }
+  ]
+}

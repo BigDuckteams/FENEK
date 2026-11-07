@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -139,10 +140,12 @@ fun SpeakerDialog(
 fun SegmentDialog(
     transcript: Transcript,
     segment: Segment,
+    retranscribing: Boolean,
     onDismiss: () -> Unit,
     onSave: (text: String, speaker: Int) -> Unit,
+    onRetranscribe: () -> Unit,
 ) {
-    var text by rememberSaveable { mutableStateOf(segment.text) }
+    var text by rememberSaveable(segment.text) { mutableStateOf(segment.text) }
     var speaker by rememberSaveable { mutableIntStateOf(segment.speaker) }
     val newSpeaker = transcript.nextSpeakerId()
     val choices = transcript.activeSpeakers().map { it.id to it.name } + (newSpeaker to "Новый участник")
@@ -154,6 +157,7 @@ fun SegmentDialog(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
+                    enabled = !retranscribing,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 120.dp),
@@ -166,7 +170,15 @@ fun SegmentDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    TextButton(onClick = { text = recognized }) { Text("Вернуть распознанный текст") }
+                    TextButton(onClick = { text = recognized }, enabled = !retranscribing) {
+                        Text("Вернуть распознанный текст")
+                    }
+                }
+                if (transcript.audio != null) {
+                    TextButton(onClick = onRetranscribe, enabled = !retranscribing) {
+                        if (retranscribing) CircularProgressIndicator()
+                        Text(if (retranscribing) "Распознаём фразу…" else "Распознать фразу заново")
+                    }
                 }
                 Text(
                     "Кто говорит",
@@ -178,6 +190,7 @@ fun SegmentDialog(
                         FilterChip(
                             selected = speaker == id,
                             onClick = { speaker = id },
+                            enabled = !retranscribing,
                             label = { Text(if (id == newSpeaker) "$title (${defaultSpeakerName(id)})" else title) },
                         )
                     }
@@ -186,10 +199,10 @@ fun SegmentDialog(
         },
         confirmButton = {
             Row {
-                TextButton(onClick = { onSave("", speaker) }) {
+                TextButton(onClick = { onSave("", speaker) }, enabled = !retranscribing) {
                     Text("Удалить", color = MaterialTheme.colorScheme.error)
                 }
-                TextButton(onClick = { onSave(text, speaker) }) { Text("Сохранить") }
+                TextButton(onClick = { onSave(text, speaker) }, enabled = !retranscribing) { Text("Сохранить") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },

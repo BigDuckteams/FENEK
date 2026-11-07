@@ -25,7 +25,7 @@
 
 1. Эталон: `tools/eval/sample/reference.json` показывает формат (для записи с полными временами
    можно взять `reference.json`, созданный вместе с `dialogue.wav`).
-2. Экспорт из приложения: «Экспорт» → «Сохранить в файл» → «JSON расшифровки».
+2. Экспорт из приложения: кнопка «Сохранить JSON расшифровки» в карточке результата.
 3. Оценка:
 
 ```bash
@@ -36,7 +36,9 @@ python tools/eval/wer.py --reference reference.json --hypothesis dialogue.json \
 ## Данные
 
 Тестовые записи и эталоны лежат в [`data/`](data) (синтезированная русская речь Windows SAPI,
-голос Irina; второй участник получен понижением тона того же голоса).
+голос Irina; второй участник получен понижением тона того же голоса). Результат новой release-проверки
+2026-11-07 в авиарежиме сохранён в [`dialogue_03_phone_call.offline-release.json`](dialogue_03_phone_call.offline-release.json),
+результат чистой установки fat APK — в [`dialogue_03_phone_call.fat-first-launch.json`](dialogue_03_phone_call.fat-first-launch.json).
 
 ## Что здесь не измерено
 

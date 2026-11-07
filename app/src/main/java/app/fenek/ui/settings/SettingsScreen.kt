@@ -112,6 +112,15 @@ fun SettingsScreen(onBack: () -> Unit, onOpenModels: () -> Unit) {
                 selectedKey = settings.language,
                 onSelect = { code -> container.settings.update { it.copy(language = code) } },
             )
+            SwitchItem(
+                title = "Очищать шумную запись",
+                checked = settings.enhanceAudio,
+                onChange = { on -> container.settings.update { it.copy(enhanceAudio = on) } },
+            )
+            Hint(
+                "Убирает постоянный гул, приглушает шум в паузах и усиливает тихую запись. " +
+                    "По умолчанию выключено: для чистой записи исходный звук обычно подходит лучше.",
+            )
 
             SectionTitle("Языковая модель")
             val llm = ModelCatalog.llm(settings.llmModelId)

@@ -6,7 +6,7 @@ Stores the few user preferences that tune recognition, speaker detection and per
 ## Requirements
 
 ### Requirement: Persisted settings with defaults
-The system SHALL persist the recognition model, the voice-fingerprint model, the recognition language, the diarization precision, the voice separation and the number of CPU threads, and SHALL use the defaults GigaAM v3 RNNT, the default voice model, automatic language, balanced precision, separation 0.5 and a thread count equal to the number of CPU cores limited to 1–4.
+The system SHALL persist the recognition model, the voice-fingerprint model, the recognition language, the audio-cleanup switch, the diarization precision, the voice separation and the number of CPU threads, and SHALL use the defaults GigaAM v3 RNNT, the default voice model, automatic language, audio cleanup off, balanced precision, separation 0.5 and a thread count equal to the number of CPU cores limited to 1–4.
 
 #### Scenario: First run
 - **WHEN** no setting has been saved
@@ -37,6 +37,14 @@ The system SHALL let the user open the model list from "Модель по умо
 #### Scenario: Language
 - **WHEN** the user picks a language
 - **THEN** it becomes the default language offered when starting a transcription with a multilingual model
+
+#### Scenario: Audio cleanup
+- **WHEN** the user enables "Очищать шумную запись"
+- **THEN** subsequent jobs remove rumble, attenuate noise in pauses and normalize quiet audio before diarization and recognition
+
+#### Scenario: Cleanup default
+- **WHEN** no cleanup preference has been saved
+- **THEN** audio cleanup is off and clean input is not modified
 
 ### Requirement: Speaker detection settings
 The system SHALL let the user choose the diarization precision ("Быстро", "Баланс", "Точно") and set the voice separation on a slider from "Объединять похожие" to "Разделять сильнее", applying the slider value when the user releases it.

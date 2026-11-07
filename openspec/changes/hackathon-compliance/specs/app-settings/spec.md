@@ -31,7 +31,7 @@ The system SHALL replace an unknown saved language model with the default one.
 ## MODIFIED Requirements
 
 ### Requirement: Persisted settings with defaults
-The system SHALL persist the recognition model, the voice-fingerprint model, the language model, the two LLM switches, the recognition language, the diarization precision, the voice separation and the number of CPU threads, and SHALL use the defaults GigaAM v3 RNNT, the default voice model, the default language model, the summary switch on and the correction switch off, automatic language, balanced precision, separation 0.5 and a thread count equal to the number of CPU cores limited to 1–4.
+The system SHALL persist the recognition model, the voice-fingerprint model, the language model, the two LLM switches, the recognition language, the audio-cleanup switch, the diarization precision, the voice separation and the number of CPU threads, and SHALL use the defaults GigaAM v3 RNNT, the default voice model, the default language model, the summary switch on and the correction switch off, automatic language, audio cleanup off, balanced precision, separation 0.5 and a thread count equal to the number of CPU cores limited to 1–4.
 
 #### Scenario: First run
 - **WHEN** no setting has been saved

@@ -109,7 +109,7 @@
 ## 18. Two universal release builds
 
 - [x] 18.1 Add the flavors `online` and `fat` without ABI splits, `bundled-models.json` with the fetch task and the generated assets, the install from the APK, signing with the local key and `./gradlew releaseApks`; verify `BundledModelsManifestTest`
-- [ ] 18.2 Build both APKs and check their sizes; verify that the fat one installs in airplane mode, installs the models and transcribes a recording
+- [x] 18.2 Build both APKs and check their sizes; verify that the fat one installs in airplane mode, installs the models and transcribes a recording
 
 ## Workflow follow-up
 

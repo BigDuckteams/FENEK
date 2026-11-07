@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.util.Log
 import app.fenek.audio.AudioDecodeException
 import app.fenek.audio.AudioDecoder
+import app.fenek.audio.AudioEnhancer
 import app.fenek.audio.PcmFile
 import app.fenek.data.AppSettings
 import app.fenek.data.Segment
@@ -112,6 +113,7 @@ class TranscriptionPipeline(
 
         val workDir = File(context.cacheDir, "work").apply { mkdirs() }
         val pcmFile = File(workDir, "${request.id}.pcm")
+        val enhancedPcmFile = File(workDir, "${request.id}.enhanced.pcm")
         var copiedAudio: File? = null
         try {
             report(Stage.PREPARING, 0f)
@@ -130,10 +132,14 @@ class TranscriptionPipeline(
             }
             gate.checkpoint()
 
-            val pcm = timed("decoding") {
+            var pcm = timed("decoding") {
                 AudioDecoder.decode(context, decodeUri, pcmFile) { report(Stage.DECODING, it) }
             }
             if (pcm.durationSec < MIN_RECORDING_SECONDS) throw AudioDecodeException("Запись пустая или слишком короткая")
+            if (settings.enhanceAudio) {
+                timed("audio enhancement") { AudioEnhancer.enhance(pcm, enhancedPcmFile) }
+                pcm = PcmFile(enhancedPcmFile)
+            }
             gate.checkpoint()
 
             report(Stage.DIARIZING, 0f)
@@ -246,6 +252,7 @@ class TranscriptionPipeline(
             throw e
         } finally {
             pcmFile.delete()
+            enhancedPcmFile.delete()
         }
     }
 
