@@ -34,8 +34,9 @@ internal object Downloader {
             try {
                 fetch(url, partial, file.sizeBytes, onBytes)
                 if (file.sizeBytes > 0 && partial.length() != file.sizeBytes) {
+                    val got = partial.length()
                     partial.delete()
-                    throw DownloadException("неверный размер файла")
+                    throw DownloadException("неверный размер файла: $got байт вместо ${file.sizeBytes}")
                 }
                 target.delete()
                 if (!partial.renameTo(target)) throw DownloadException("не удалось сохранить файл")
@@ -56,6 +57,20 @@ internal object Downloader {
         null, is UnknownHostException, is ConnectException, is NoRouteToHostException, is SocketTimeoutException ->
             "нет соединения с интернетом"
         else -> error.message ?: error.javaClass.simpleName
+    }
+
+    /**
+     * Whether the server announces a file of another size than the catalog expects, in words for the user,
+     * or null when the size fits or is not announced. Such a download is refused at once: it would only
+     * end, after all the megabytes, in a file that fails the size check anyway.
+     *
+     * @param existing bytes already on disk, which a 206 answer continues from
+     * @param announced the Content-Length of the answer, -1 when it is not known
+     */
+    internal fun sizeProblem(code: Int, existing: Long, announced: Long, expected: Long): String? {
+        if (expected <= 0 || announced < 0) return null
+        val total = if (code == 206) existing + announced else announced
+        return if (total == expected) null else "файл на сервере изменился ($total байт вместо $expected), нужна новая версия приложения"
     }
 
     private suspend fun fetch(startUrl: String, partial: File, expected: Long, onBytes: (Long) -> Unit) {
@@ -94,6 +109,8 @@ internal object Downloader {
                         restarted = true
                     }
                     code == 200 || code == 206 -> {
+                        sizeProblem(code, if (code == 206) existing else 0L, connection.contentLengthLong, expected)
+                            ?.let { throw DownloadException(it) }
                         val append = code == 206 && existing > 0
                         var written = if (append) existing else 0L
                         connection.inputStream.use { input ->

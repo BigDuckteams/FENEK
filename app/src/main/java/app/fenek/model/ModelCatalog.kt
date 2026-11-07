@@ -40,30 +40,54 @@ data class ModelInfo(
  */
 object ModelCatalog {
 
-    private fun hf(repo: String, name: String, size: Long) = RemoteFile(
+    /**
+     * A Hugging Face repository at one commit. Files are addressed by the commit, not by `main`: a repository
+     * that is rewritten upstream changes its files (and their sizes) under the same names, and the exact size
+     * check then rejects every download. To take a newer model, change the commit and the sizes together.
+     */
+    private class Repo(val id: String, val commit: String)
+
+    private fun hf(repo: Repo, name: String, size: Long) = RemoteFile(
         name, size,
         listOf(
-            "https://huggingface.co/$repo/resolve/main/$name",
-            "https://hf-mirror.com/$repo/resolve/main/$name",
+            "https://huggingface.co/${repo.id}/resolve/${repo.commit}/$name",
+            "https://hf-mirror.com/${repo.id}/resolve/${repo.commit}/$name",
         ),
     )
+
+    private val SPEAKER_MODELS = Repo("csukuangfj/speaker-embedding-models", "0743f301363dec56491a490f6d6cbc9d67f9a3bf")
 
     private fun speakerModel(name: String, size: Long) = RemoteFile(
         name, size,
         listOf(
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/$name",
-            "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/$name",
-            "https://hf-mirror.com/csukuangfj/speaker-embedding-models/resolve/main/$name",
+            "https://huggingface.co/${SPEAKER_MODELS.id}/resolve/${SPEAKER_MODELS.commit}/$name",
+            "https://hf-mirror.com/${SPEAKER_MODELS.id}/resolve/${SPEAKER_MODELS.commit}/$name",
         ),
     )
 
-    private const val GIGA_RNNT = "csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16"
-    private const val GIGA_CTC = "csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16"
-    private const val ZIPFORMER_RU = "csukuangfj/sherpa-onnx-zipformer-ru-int8-2025-04-20"
-    private const val WHISPER_BASE = "csukuangfj/sherpa-onnx-whisper-base"
-    private const val WHISPER_SMALL = "csukuangfj/sherpa-onnx-whisper-small"
-    private const val PARAKEET_V3 = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
-    private const val PYANNOTE = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0"
+    private val GIGA_RNNT = Repo(
+        "csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16",
+        "a6039be7cee829a9044a69ac0ebaf1c191217c97",
+    )
+    private val GIGA_CTC = Repo(
+        "csukuangfj/sherpa-onnx-nemo-ctc-punct-giga-am-v3-russian-2025-12-16",
+        "4fb5407ff028a69fec516cdf4c10fac9ddea7c16",
+    )
+    private val ZIPFORMER_RU = Repo("csukuangfj/sherpa-onnx-zipformer-ru-int8-2025-04-20", "641de8d322c05b9087ad2927ccda4bda3cccc159")
+    private val WHISPER_BASE = Repo("csukuangfj/sherpa-onnx-whisper-base", "bb53ee204431c90d314c1cc08d28d23e5b7927cc")
+    private val WHISPER_SMALL = Repo("csukuangfj/sherpa-onnx-whisper-small", "8f3c18b358db4d1f2fc1eae49d75cd20989e4309")
+
+    // The commit of August 2025. The repository was rewritten on 2026-11-07 (another export of the same
+    // model: the encoder is 98 KB bigger, the decoder 1 byte smaller); that one has not been tried here.
+    private val PARAKEET_V3 = Repo(
+        "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+        "2bda32ec70b097a55adaa07d9a7173915b43cc78",
+    )
+    private val PYANNOTE = Repo("csukuangfj/sherpa-onnx-pyannote-segmentation-3-0", "9403a6902bb58e3d5ae8c7e77c3422de279db2e0")
+    private val QWEN_15 = Repo("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "91cad51170dc346986eccefdc2dd33a9da36ead9")
+    private val QWEN_05 = Repo("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "9217f5db79a29953eb74d5343926648285ec7e67")
+    private val GEMMA_1B = Repo("unsloth/gemma-3-1b-it-GGUF", "f0b45be0aac41bd6a100a4b5734cad5f67255bfb")
 
     val gigaAmRnnt = ModelInfo(
         id = "gigaam-v3-rnnt-punct",
@@ -238,7 +262,7 @@ object ModelCatalog {
             "Работает на телефоне. Нужен телефон с 4 ГБ ОЗУ и больше.",
         languages = "Русский, английский и другие",
         license = "Apache-2.0",
-        files = listOf(hf("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf", 1_117_320_736)),
+        files = listOf(hf(QWEN_15, "qwen2.5-1.5b-instruct-q4_k_m.gguf", 1_117_320_736)),
         recommended = true,
     )
 
@@ -249,7 +273,7 @@ object ModelCatalog {
         summary = "Маленькая и быстрая языковая модель для слабых телефонов. Чаще ошибается, поэтому больше правок отклоняется.",
         languages = "Русский, английский и другие",
         license = "Apache-2.0",
-        files = listOf(hf("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "qwen2.5-0.5b-instruct-q4_k_m.gguf", 491_400_032)),
+        files = listOf(hf(QWEN_05, "qwen2.5-0.5b-instruct-q4_k_m.gguf", 491_400_032)),
     )
 
     val gemma1 = ModelInfo(
@@ -259,7 +283,7 @@ object ModelCatalog {
         summary = "Языковая модель Google среднего размера. Условия использования Gemma ограничивают применение.",
         languages = "Русский, английский и другие",
         license = "Gemma Terms of Use",
-        files = listOf(hf("unsloth/gemma-3-1b-it-GGUF", "gemma-3-1b-it-Q4_K_M.gguf", 806_058_272)),
+        files = listOf(hf(GEMMA_1B, "gemma-3-1b-it-Q4_K_M.gguf", 806_058_272)),
     )
 
     val asrModels = listOf(gigaAmRnnt, gigaAmCtc, zipformerRu, whisperBase, whisperSmall, parakeetV3)
