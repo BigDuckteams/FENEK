@@ -30,6 +30,7 @@ class LlmPostProcessor(
     private val marker: LlmCrashMarker,
     private val availableMemory: () -> Long,
     private val log: (message: String, error: Throwable?) -> Unit = { _, _ -> },
+    private val budgetFor: (recordingMs: Long) -> LlmBudget = { LlmBudget.forRecording(it) },
 ) {
 
     suspend fun process(
@@ -55,9 +56,12 @@ class LlmPostProcessor(
             }
             engine.use {
                 var current = transcript
+                val budget = budgetFor(transcript.durationMs)
                 try {
                     if (plan.correctText) {
-                        val result = TextCorrector(engine).correct(current.segments) { done, total ->
+                        // The summary keeps at least half of the time when both stages are on.
+                        val share = if (plan.writeHighlights) 0.5 else 1.0
+                        val result = TextCorrector(engine, budget = budget.part(share)).correct(current.segments) { done, total ->
                             onProgress(LlmStage.CORRECTING, if (total == 0) 1f else done.toFloat() / total, done, total)
                         }
                         current = current.copy(
@@ -68,7 +72,7 @@ class LlmPostProcessor(
                     }
                     if (plan.writeHighlights) {
                         onProgress(LlmStage.SUMMARIZING, 0f, 0, 0)
-                        val written = HighlightsWriter(engine).write(current.segments, current::speakerName)
+                        val written = HighlightsWriter(engine, budget = budget).write(current.segments, current::speakerName)
                         if (written != null) {
                             current = current.copy(
                                 llmModelId = plan.modelId,
@@ -83,6 +87,7 @@ class LlmPostProcessor(
                 } catch (e: Throwable) {
                     log("The language model stopped, keeping what is done", e)
                 }
+                log("Language model stages: ${budget.totalMs - budget.remainingMs} ms of the ${budget.totalMs} ms budget", null)
                 return current
             }
         } finally {

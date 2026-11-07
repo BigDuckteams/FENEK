@@ -90,6 +90,11 @@
 - [ ] 14.1 Fresh install of the release APK on a phone: download the models, switch airplane mode on, import a test recording, process with both LLM modes on, export the task JSON, and validate the file with the eval tool; verify schema, WER and RTF match the recorded results
 - [x] 14.2 Check that no network traffic occurs during processing (for example `adb shell dumpsys netstats` before and after, or a firewall-blocked run) and that all unit tests (`./gradlew testDebugUnitTest`) and the eval tool tests pass
 
+## 15. Time budget of the LLM stages
+
+- [x] 15.1 Add `LlmBudget` (half the recording's length, 2–10 minutes, requests get what is left, none under 15 s), pass it to the correction and the summary (the correction takes at most half when both are on) and ask the summary windows first/last/middle first; verify the unit tests for the arithmetic, the early stop with two requests of 45 s in a 100 s budget, and the window order
+- [x] 15.2 Document the budget in `docs/ARCHITECTURE.md` and `docs/LIMITATIONS.md`; verify on the emulator that a job logs its budget (120 s for a 63 s recording) and ends inside it (an exhausted budget is covered by the unit test only: with the 120 s floor a one-window recording cannot be cut earlier than before on the emulator)
+
 ## Workflow follow-up
 
 - Archive the change after the group 11 defaults are settled so the main specs show the final defaults.

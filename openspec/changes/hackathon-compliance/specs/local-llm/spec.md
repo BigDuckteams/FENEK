@@ -156,6 +156,21 @@ The system SHALL limit every LLM request in generated length (proportional to it
 - **WHEN** the model keeps generating beyond the length limit
 - **THEN** generation stops and the affected phrases keep their recognized text
 
+### Requirement: Time budget of the LLM stages
+The system SHALL give all LLM stages of one job a common time budget of half the recording's length, but not less than 2 minutes and not more than 10 minutes, counted from the moment the model is ready. A request SHALL get at most what is left of the budget, and the remaining requests SHALL be skipped when less than 15 seconds are left.
+
+#### Scenario: Slow device
+- **WHEN** the requests of the LLM stages together use up the time budget
+- **THEN** the remaining requests are skipped, what is finished is kept and the job completes, with the rule-based highlights if the summary produced nothing
+
+#### Scenario: Budget ends inside a long conversation
+- **WHEN** the budget ends before every window of a long conversation is summarized
+- **THEN** the windows that were done are spread over the whole conversation (the first and the last window first, then the middle of every gap)
+
+#### Scenario: Both stages on
+- **WHEN** both "Исправлять текст" and "Выжимка и задачи" are on
+- **THEN** the correction may use at most half of the budget and the summary gets the rest, including whatever the correction left unused
+
 ### Requirement: Repeatable output
 The system SHALL generate with deterministic settings, so that processing the same recording twice with the same settings gives the same corrected text.
 

@@ -27,6 +27,7 @@ class HighlightsWriter(
     private val engine: LlmEngine,
     private val windowChars: Int = 3_000,
     private val timeoutMs: Long = 120_000,
+    private val budget: LlmBudget? = null,
 ) {
 
     suspend fun write(segments: List<Segment>, speakerName: (Int) -> String): WrittenHighlights? {
@@ -35,15 +36,18 @@ class HighlightsWriter(
         val summary = ArrayList<LlmItem>()
         val tasks = ArrayList<LlmItem>()
         var answered = 0
-        for (window in windows) {
+        for (number in coverageOrder(windows.size)) {
+            val window = windows[number]
             currentCoroutineContext().ensureActive()
+            // Out of time: the windows that are left stay without a summary.
+            val limit = if (budget == null) timeoutMs else budget.request(timeoutMs) ?: break
             val answer = try {
                 engine.generate(
                     system = system(single = windows.size == 1),
                     user = window.joinToString("\n") { "${it + 1} [${speakerName(segments[it].speaker)}]: ${segments[it].text}" },
                     grammar = GRAMMAR,
                     maxTokens = MAX_TOKENS,
-                    timeoutMs = timeoutMs,
+                    timeoutMs = limit,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -80,6 +84,27 @@ class HighlightsWriter(
         }
         if (current.isNotEmpty()) result += current
         return result
+    }
+
+    /**
+     * The order the windows are asked in: the first, the last, then the middle of every gap and so on.
+     * When the time budget ends the stage early, the windows that were done are spread over the whole
+     * conversation instead of being only its beginning.
+     */
+    internal fun coverageOrder(count: Int): List<Int> {
+        if (count <= 2) return (0 until count).toList()
+        val order = arrayListOf(0, count - 1)
+        val gaps = ArrayDeque<IntRange>()
+        gaps += 1..count - 2
+        while (gaps.isNotEmpty()) {
+            val gap = gaps.removeFirst()
+            if (gap.isEmpty()) continue
+            val middle = (gap.first + gap.last) / 2
+            order += middle
+            gaps += gap.first until middle
+            gaps += middle + 1..gap.last
+        }
+        return order
     }
 
     /** Small models copy the "Спикер 1:" label of the line they took the sentence from. */

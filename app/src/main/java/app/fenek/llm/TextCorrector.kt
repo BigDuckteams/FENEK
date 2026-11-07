@@ -25,6 +25,7 @@ class TextCorrector(
     private val maxBatchPhrases: Int = 8,
     private val maxBatchChars: Int = 1_800,
     private val timeoutMs: Long = 60_000,
+    private val budget: LlmBudget? = null,
 ) {
 
     suspend fun correct(segments: List<Segment>, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): CorrectionResult {
@@ -37,12 +38,14 @@ class TextCorrector(
         onProgress(0, candidates.size)
         for (batch in batches(segments, candidates)) {
             currentCoroutineContext().ensureActive()
+            // Out of time: the phrases that are left keep their recognized text.
+            val limit = if (budget == null) timeoutMs else budget.request(timeoutMs) ?: break
             val answer = try {
                 engine.generate(
                     system = SYSTEM,
                     user = prompt(segments, batch),
                     maxTokens = maxTokens(batch.sumOf { segments[it].text.length }),
-                    timeoutMs = timeoutMs,
+                    timeoutMs = limit,
                 )
             } catch (e: CancellationException) {
                 throw e
