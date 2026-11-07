@@ -82,7 +82,7 @@
 - [x] 13.2 Fill `artifacts/test-results/results.csv` and its README with the columns from the spec and the measured rows; verify every row has a commit hash
 - [x] 13.3 Add `src/README.md` (platform, location of the Gradle project, how to build) and `config/example.env` adapted or removed; verify the paths it mentions exist
 - [x] 13.4 Update the root README: install, first-launch model download, import, transcribe, export, offline check, build, tests, and refresh the stale parts (clustering description, model table, shortcuts); verify the commands in it run as written
-- [ ] 13.5 Build the release APK, attach it to a GitHub Release and put the link in the README; verify it installs on a clean phone and the README tells to open the app online once before the offline check
+- [ ] 13.5 Build the two release APKs (`./gradlew releaseApks`), attach them to a GitHub Release and put the links in the README; verify the online one installs on a clean phone and the README tells to open it online once before the offline check, and that the fat one works in airplane mode from the first launch
 - [ ] 13.6 Record the demo video (install, download the models, switch airplane mode on, import, transcribe, view, export JSON) and link it in `artifacts/demo/README.md`; verify the video shows airplane mode before processing starts
 
 ## 14. Final integration checks
@@ -94,6 +94,22 @@
 
 - [x] 15.1 Add `LlmBudget` (half the recording's length, 2–10 minutes, requests get what is left, none under 15 s), pass it to the correction and the summary (the correction takes at most half when both are on) and ask the summary windows first/last/middle first; verify the unit tests for the arithmetic, the early stop with two requests of 45 s in a 100 s budget, and the window order
 - [x] 15.2 Document the budget in `docs/ARCHITECTURE.md` and `docs/LIMITATIONS.md`; verify on the emulator that a job logs its budget (120 s for a 63 s recording) and ends inside it (an exhausted budget is covered by the unit test only: with the 120 s floor a one-window recording cannot be cut earlier than before on the emulator)
+
+## 16. Recording sheet
+
+- [x] 16.1 Replace the three buttons of a saved recording with a tap that opens a bottom sheet (name, size, duration, format, "Расшифровать", "Поделиться", "Удалить" across the full width); verify the build
+- [ ] 16.2 Check on a phone that the card has no buttons and that the sheet texts fit
+
+## 17. Transcription queue and pause
+
+- [x] 17.1 Add `JobQueue` (order, duplicates, pause, resume, start now) and `PauseGate`; verify the unit tests in `JobQueueTest`
+- [x] 17.2 Make `JobController` a queue with pause, result and failure lists; put the pause points into the pipeline and the speaker detection; update the notification, the service, the recount and the home screen (running card, queue, failures); verify the build and the existing tests
+- [ ] 17.3 Check on a phone: two files run one after another; a pause with another file waiting starts it, and resuming continues the first from where it stopped; cancel and remove work in every state; the notification actions work
+
+## 18. Two universal release builds
+
+- [x] 18.1 Add the flavors `online` and `fat` without ABI splits, `bundled-models.json` with the fetch task and the generated assets, the install from the APK, signing with the local key and `./gradlew releaseApks`; verify `BundledModelsManifestTest`
+- [ ] 18.2 Build both APKs and check their sizes; verify that the fat one installs in airplane mode, installs the models and transcribes a recording
 
 ## Workflow follow-up
 

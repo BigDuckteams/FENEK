@@ -1,10 +1,83 @@
+import com.android.build.api.artifact.SingleArtifact
 import java.net.URI
+import java.nio.file.Files
 import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+/**
+ * Puts the models of the "fat" build into a generated assets folder (`models/<id>/<file>`), from the list
+ * in `bundled-models.json`. Downloads go to a cache in the Gradle user home, outside `build/`, so that only
+ * the very first build downloads them (about 1.4 GB) and `clean` does not throw them away; the assets
+ * folder gets hard links to the cached files (or copies, where links are not possible). A download of the
+ * wrong size is rejected.
+ */
+abstract class FetchBundledModels : DefaultTask() {
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val manifest: RegularFileProperty
+
+    @get:Internal
+    abstract val cacheDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun fetch() {
+        @Suppress("UNCHECKED_CAST")
+        val models = (groovy.json.JsonSlurper().parse(manifest.get().asFile) as Map<String, Any>)["models"] as List<Map<String, Any>>
+        for (model in models) {
+            val id = model["id"] as String
+            @Suppress("UNCHECKED_CAST")
+            for (file in model["files"] as List<Map<String, Any>>) {
+                val name = file["name"] as String
+                val bytes = (file["bytes"] as Number).toLong()
+                val urls = (file["urls"] as List<*>).map { it as String }
+                val cached = File(cacheDir.get().asFile, "$id/$name")
+                if (!(cached.isFile && cached.length() == bytes)) {
+                    cached.parentFile.mkdirs()
+                    download(urls, cached, bytes)
+                }
+                val target = File(outputDir.get().asFile, "models/$id/$name")
+                target.parentFile.mkdirs()
+                target.delete()
+                try {
+                    Files.createLink(target.toPath(), cached.toPath())
+                } catch (e: Exception) {
+                    cached.copyTo(target, overwrite = true)
+                }
+            }
+        }
+    }
+
+    private fun download(urls: List<String>, target: File, bytes: Long) {
+        var lastError: Exception? = null
+        for (url in urls) {
+            val part = File(target.path + ".part")
+            try {
+                logger.lifecycle("Downloading $url (${bytes / 1_000_000} MB)")
+                val connection = URI(url).toURL().openConnection().apply {
+                    connectTimeout = 30_000
+                    readTimeout = 60_000
+                }
+                connection.getInputStream().use { input -> part.outputStream().use { output -> input.copyTo(output, 1 shl 20) } }
+                check(part.length() == bytes) { "${target.name}: ${part.length()} bytes instead of $bytes" }
+                check(part.renameTo(target)) { "Cannot move $part to $target" }
+                return
+            } catch (e: Exception) {
+                lastError = e
+                part.delete()
+                logger.warn("Cannot download $url: ${e.message}")
+            }
+        }
+        throw GradleException("Cannot download ${target.name} from any mirror", lastError)
+    }
 }
 
 // sherpa-onnx (on-device ASR and speaker diarization on top of onnxruntime) is published
@@ -82,13 +155,32 @@ android {
         }
     }
 
-    // A small APK per processor type (a phone needs only one) plus a universal APK.
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
-            isUniversalApk = true
+    // Two universal APKs (every processor type in one file), which differ in where the models come from.
+    flavorDimensions += "distribution"
+    productFlavors {
+        // Downloads the models on the first launch: a network is needed once.
+        create("online") {
+            dimension = "distribution"
+            buildConfigField("boolean", "BUNDLED_MODELS", "false")
+        }
+        // Carries the default set of models inside the APK (about 1.4 GB): works with no network from the start.
+        create("fat") {
+            dimension = "distribution"
+            buildConfigField("boolean", "BUNDLED_MODELS", "true")
+        }
+    }
+
+    // Release APKs are signed with the local debug key when there is one, so that they install on a phone
+    // at once (this is not a key for Google Play; it is the public Android default).
+    val debugKeystore = File(System.getProperty("user.home"), ".android/debug.keystore")
+    signingConfigs {
+        if (debugKeystore.isFile) {
+            create("demo") {
+                storeFile = debugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
@@ -100,7 +192,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfigs.findByName("demo")?.let { signingConfig = it }
         }
+    }
+
+    // Model files are read as they are: compressing 1.4 GB would only make the first launch slower.
+    androidResources {
+        noCompress += listOf("onnx", "gguf")
     }
 
     compileOptions {
@@ -110,6 +208,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -120,6 +219,40 @@ android {
             excludes += "lib/x86/**"
         }
     }
+}
+
+val releaseApkCopies = mutableListOf<TaskProvider<Copy>>()
+
+androidComponents {
+    beforeVariants { variant ->
+        // The fat build is a release artifact: a debug variant would only download 1.4 GB for nothing.
+        if (variant.flavorName == "fat" && variant.buildType == "debug") variant.enable = false
+    }
+    onVariants { variant ->
+        val capitalized = variant.name.replaceFirstChar { it.uppercase() }
+        if (variant.flavorName == "fat") {
+            val fetch = tasks.register<FetchBundledModels>("fetch${capitalized}Models") {
+                manifest.set(layout.projectDirectory.file("bundled-models.json"))
+                cacheDir.set(File(gradle.gradleUserHomeDir, "fenek-models"))
+                outputDir.set(layout.buildDirectory.dir("bundled-models/${variant.name}"))
+            }
+            variant.sources.assets?.addGeneratedSourceDirectory(fetch, FetchBundledModels::outputDir)
+        }
+        if (variant.buildType == "release") {
+            releaseApkCopies += tasks.register<Copy>("copy${capitalized}Apk") {
+                from(variant.artifacts.get(SingleArtifact.APK)) { include("*.apk") }
+                into(rootProject.layout.projectDirectory.dir("dist"))
+                rename { "FENEK-${variant.flavorName}-universal.apk" }
+            }
+        }
+    }
+}
+
+// ./gradlew releaseApks: both universal release APKs, ready to install, in dist/.
+tasks.register("releaseApks") {
+    group = "build"
+    description = "Builds FENEK-online-universal.apk and FENEK-fat-universal.apk into dist/"
+    dependsOn(releaseApkCopies)
 }
 
 dependencies {

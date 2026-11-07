@@ -26,9 +26,11 @@ object Notifications {
     private const val CHANNEL_RESULTS = "results"
     private const val CHANNEL_RECORDING = "recording"
     const val ID_WORK = 1
-    private const val ID_RESULT = 2
     const val ID_RECORDING = 3
     private const val ID_RECORDING_SAVED = 4
+
+    /** Results of the jobs start here, one id for each job (the ids below it are taken). */
+    private const val ID_RESULT = 1000
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -107,6 +109,7 @@ object Notifications {
     fun work(
         context: Context,
         job: JobState,
+        queue: List<QueuedJob>,
         downloads: Map<ModelInfo, ModelState.Downloading>,
     ): Notification {
         val builder = NotificationCompat.Builder(context, CHANNEL_WORK)
@@ -117,17 +120,28 @@ object Notifications {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openApp(context, null))
+        val waiting = queue.count { !it.paused }
+        val paused = queue.firstOrNull { it.paused }
         when {
-            job is JobState.Running -> builder
-                .setContentTitle(job.request.displayName)
-                .setContentText(job.progress.statusText())
-                .setProgress(1000, (job.progress.overall * 1000).toInt(), false)
-                .addAction(0, "Отменить", cancelIntent(context))
+            job is JobState.Running -> {
+                builder
+                    .setContentTitle(job.request.displayName)
+                    .setContentText(if (job.pausing) "Ставлю на паузу…" else job.progress.statusText())
+                    .setProgress(1000, (job.progress.overall * 1000).toInt(), false)
+                if (waiting > 0) builder.setSubText("В очереди: $waiting")
+                if (!job.pausing) builder.addAction(0, "Пауза", workAction(context, WorkService.ACTION_PAUSE, 20))
+                builder.addAction(0, "Отменить", workAction(context, WorkService.ACTION_CANCEL, 1))
+            }
+            paused != null -> builder
+                .setContentTitle("Расшифровка на паузе")
+                .setContentText("${paused.request.displayName} · ${(paused.progress * 100).toInt()} %")
+                .addAction(0, "Продолжить", workAction(context, WorkService.ACTION_RESUME, 21))
+                .addAction(0, "Убрать", workAction(context, WorkService.ACTION_CANCEL_ALL, 22))
             downloads.isNotEmpty() -> {
                 val bytes = downloads.values.sumOf { it.bytes }
                 val total = downloads.values.sumOf { it.total }.coerceAtLeast(1)
                 builder
-                    .setContentTitle("Загрузка моделей")
+                    .setContentTitle(if (downloads.values.any { it.fromApk }) "Установка моделей" else "Загрузка моделей")
                     .setContentText(downloads.keys.joinToString { it.title })
                     .setProgress(1000, (bytes * 1000 / total).toInt(), false)
             }
@@ -144,10 +158,10 @@ object Notifications {
             .setAutoCancel(true)
             .setContentIntent(openApp(context, transcript.id))
             .build()
-        notify(context, ID_RESULT, notification)
+        notify(context, resultId(transcript.id), notification)
     }
 
-    fun showFailed(context: Context, fileName: String, message: String) {
+    fun showFailed(context: Context, jobId: String, fileName: String, message: String) {
         val notification = NotificationCompat.Builder(context, CHANNEL_RESULTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Не удалось расшифровать «$fileName»")
@@ -156,8 +170,11 @@ object Notifications {
             .setAutoCancel(true)
             .setContentIntent(openApp(context, null))
             .build()
-        notify(context, ID_RESULT, notification)
+        notify(context, resultId(jobId), notification)
     }
+
+    /** Every finished or failed job of a queue keeps its own notification. */
+    private fun resultId(jobId: String): Int = ID_RESULT + (jobId.hashCode() and 0xFFFF)
 
     @SuppressLint("MissingPermission")
     fun notify(context: Context, id: Int, notification: Notification) {
@@ -185,10 +202,10 @@ object Notifications {
         )
     }
 
-    private fun cancelIntent(context: Context): PendingIntent = PendingIntent.getService(
+    private fun workAction(context: Context, action: String, requestCode: Int): PendingIntent = PendingIntent.getService(
         context,
-        1,
-        Intent(context, WorkService::class.java).setAction(WorkService.ACTION_CANCEL),
+        requestCode,
+        Intent(context, WorkService::class.java).setAction(action),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 }

@@ -28,23 +28,31 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -54,6 +62,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,7 +93,10 @@ import app.fenek.model.ModelInfo
 import app.fenek.model.ModelState
 import app.fenek.record.RecorderState
 import app.fenek.record.Recording
+import app.fenek.service.Enqueued
+import app.fenek.service.JobFailure
 import app.fenek.service.JobState
+import app.fenek.service.QueuedJob
 import app.fenek.service.statusText
 import app.fenek.ui.brand.FennecMark
 import app.fenek.ui.components.SectionTitle
@@ -97,6 +109,7 @@ import app.fenek.util.TimeFormat
 import app.fenek.util.pluralRu
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 private val AUDIO_MIME_TYPES = arrayOf("audio/*", "video/*", "application/ogg")
 
@@ -117,6 +130,8 @@ fun HomeScreen(
     val settings by container.settings.state.collectAsStateWithLifecycle()
     val recorderState by container.recorder.state.collectAsStateWithLifecycle()
     val recordings by container.recorder.recordings.collectAsStateWithLifecycle()
+    val queue by container.jobs.queue.collectAsStateWithLifecycle()
+    val failures by container.jobs.failures.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<PendingAudio?>(null) }
@@ -124,6 +139,7 @@ fun HomeScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     var recordingToDelete by remember { mutableStateOf<Recording?>(null) }
+    var recordingSheet by remember { mutableStateOf<Recording?>(null) }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -173,26 +189,27 @@ fun HomeScreen(
 
     // Cards inserted above the first visible item would otherwise appear off-screen.
     val listState = rememberLazyListState()
-    val jobVisible = jobState is JobState.Running || jobState is JobState.Failed
+    val jobVisible = jobState is JobState.Running || failures.isNotEmpty()
     val recordingNow = recorderState is RecorderState.Active
     LaunchedEffect(jobVisible, recordingNow) {
         if (jobVisible || recordingNow) listState.animateScrollToItem(0)
     }
 
+    // Every finished job is announced once, also those that finished while another screen was shown.
     val openTranscript by rememberUpdatedState(onOpenTranscript)
     LaunchedEffect(Unit) {
-        container.jobs.state.collect { state ->
-            if (state is JobState.Done) {
-                container.jobs.acknowledge()
+        container.jobs.results.collect { finished ->
+            for (done in finished) {
+                container.jobs.acknowledgeResult(done.transcriptId)
                 container.recorder.refresh()
                 launch { listState.animateScrollToItem(0) }
                 launch {
-                    val result = snackbar.showSnackbar(
-                        message = "Расшифровка «${state.title}» готова",
+                    val answer = snackbar.showSnackbar(
+                        message = "Расшифровка «${done.title}» готова",
                         actionLabel = "Открыть",
                         duration = SnackbarDuration.Long,
                     )
-                    if (result == SnackbarResult.ActionPerformed) openTranscript(state.transcriptId)
+                    if (answer == SnackbarResult.ActionPerformed) openTranscript(done.transcriptId)
                 }
             }
         }
@@ -208,7 +225,7 @@ fun HomeScreen(
             onStart = { numSpeakers, asrModelId, language ->
                 pending = null
                 container.settings.update { it.copy(asrModelId = asrModelId, language = language) }
-                val started = container.jobs.start(
+                val outcome = container.jobs.enqueue(
                     JobRequest(
                         source = audio.uri,
                         displayName = audio.name,
@@ -219,9 +236,12 @@ fun HomeScreen(
                         language = language,
                     ),
                 )
-                if (!started) {
-                    scope.launch { snackbar.showSnackbar("Дождитесь окончания текущей расшифровки") }
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                when (outcome) {
+                    Enqueued.DUPLICATE -> scope.launch { snackbar.showSnackbar("Эта запись уже в очереди") }
+                    Enqueued.QUEUED -> scope.launch { snackbar.showSnackbar("Добавлено в очередь, начнётся после текущей") }
+                    Enqueued.STARTED -> Unit
+                }
+                if (outcome != Enqueued.DUPLICATE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
                     PackageManager.PERMISSION_GRANTED
                 ) {
@@ -271,10 +291,14 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val plan = remember(settings, modelStates) { DownloadPlan.of(settings) { modelStates[it.id] is ModelState.Ready } }
-        val runningSource = (jobState as? JobState.Running)?.request?.source?.path
+        // A recording that is being processed or waits in the queue is shown there, not in the list.
+        val busySources = buildSet {
+            (jobState as? JobState.Running)?.request?.source?.path?.let(::add)
+            queue.forEach { it.request.source.path?.let(::add) }
+        }
         val untranscribed = recordings.filter { recording ->
             val path = recording.file.absolutePath
-            path != runningSource && transcripts.orEmpty().none { it.audio == path }
+            path !in busySources && transcripts.orEmpty().none { it.audio == path }
         }
         LazyColumn(
             state = listState,
@@ -311,28 +335,28 @@ fun HomeScreen(
                     )
                 }
             }
-            when (val state = jobState) {
-                is JobState.Running -> item(key = "job") {
-                    JobProgressCard(state, onCancel = { container.jobs.cancel() })
+            (jobState as? JobState.Running)?.let { state ->
+                item(key = "job") {
+                    JobProgressCard(state, onPause = { container.jobs.pause() }, onCancel = { container.jobs.cancel() })
                 }
-                is JobState.Failed -> item(key = "job") {
-                    JobFailedCard(state, onDismiss = { container.jobs.acknowledge() }, onOpenModels = onOpenModels)
+            }
+            if (queue.isNotEmpty()) {
+                item(key = "queue-title") { SectionTitle("Очередь") }
+                items(queue, key = { "queued-" + it.request.id }) { job ->
+                    QueuedJobCard(
+                        job = job,
+                        onStartNow = { container.jobs.startNow(job.request.id) },
+                        onRemove = { container.jobs.remove(job.request.id) },
+                    )
                 }
-                else -> Unit
+            }
+            items(failures, key = { "failed-" + it.id }) { failure ->
+                JobFailedCard(failure, onDismiss = { container.jobs.dismissFailure(failure.id) }, onOpenModels = onOpenModels)
             }
             if (untranscribed.isNotEmpty() && query.isBlank()) {
                 item(key = "recordings-title") { SectionTitle("Записи без расшифровки") }
                 items(untranscribed, key = { "rec-" + it.file.name }) { recording ->
-                    RecordingCard(
-                        recording = recording,
-                        onTranscribe = {
-                            pending = PendingAudio(Uri.fromFile(recording.file), recording.displayName, copy = false, owned = true)
-                        },
-                        onShare = {
-                            scope.launch { Sharing.shareAudio(context, recording.file, recording.displayName.substringBeforeLast('.')) }
-                        },
-                        onDelete = { recordingToDelete = recording },
-                    )
+                    RecordingCard(recording = recording, onClick = { recordingSheet = recording })
                 }
             }
             val list = transcripts
@@ -387,6 +411,25 @@ fun HomeScreen(
         }
     }
 
+    recordingSheet?.let { recording ->
+        RecordingSheet(
+            recording = recording,
+            onDismiss = { recordingSheet = null },
+            onTranscribe = {
+                recordingSheet = null
+                pending = PendingAudio(Uri.fromFile(recording.file), recording.displayName, copy = false, owned = true)
+            },
+            onShare = {
+                recordingSheet = null
+                scope.launch { Sharing.shareAudio(context, recording.file, recording.displayName.substringBeforeLast('.')) }
+            },
+            onDelete = {
+                recordingSheet = null
+                recordingToDelete = recording
+            },
+        )
+    }
+
     recordingToDelete?.let { recording ->
         AlertDialog(
             onDismissRequest = { recordingToDelete = null },
@@ -438,35 +481,159 @@ private fun RecordingBanner(active: RecorderState.Active, onOpen: () -> Unit) {
     }
 }
 
+/** A saved recording without a transcript. The actions are in the sheet that opens on a tap. */
 @Composable
-private fun RecordingCard(recording: Recording, onTranscribe: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
+private fun RecordingCard(recording: Recording, onClick: () -> Unit) {
     Card(
+        onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        recording.displayName.substringBeforeLast('.'),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                    Text(
-                        TimeFormat.clock(recording.durationMs) +
-                            (if (recording.marks.isEmpty()) "" else " · " + pluralRu(recording.marks.size, "отметка", "отметки", "отметок")) +
-                            " · ещё не расшифрована",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    recording.displayName.substringBeforeLast('.'),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    TimeFormat.clock(recording.durationMs) +
+                        (if (recording.marks.isEmpty()) "" else " · " + pluralRu(recording.marks.size, "отметка", "отметки", "отметок")) +
+                        " · ещё не расшифрована",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDelete) { Text("Удалить") }
-                TextButton(onClick = onShare) { Text("Поделиться") }
-                TextButton(onClick = onTranscribe) { Text("Расшифровать") }
+        }
+    }
+}
+
+/** The details of a recording and what can be done with it, in one place that fits any screen width. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecordingSheet(
+    recording: Recording,
+    onDismiss: () -> Unit,
+    onTranscribe: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+        ) {
+            Text(recording.displayName.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(12.dp))
+            DetailRow("Размер", formatBytes(recording.file.length()))
+            DetailRow("Длительность", TimeFormat.clock(recording.durationMs))
+            DetailRow("Формат", audioFormat(recording.file))
+            if (recording.marks.isNotEmpty()) DetailRow("Отметки", recording.marks.size.toString())
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onTranscribe, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Расшифровать")
+            }
+            FilledTonalButton(
+                onClick = onShare,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) {
+                Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Поделиться")
+            }
+            TextButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Удалить")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+    }
+}
+
+private fun audioFormat(file: File): String = when (val extension = file.extension.lowercase()) {
+    "aac" -> "AAC (ADTS)"
+    "m4a", "mp4" -> "AAC (M4A)"
+    "" -> "неизвестен"
+    else -> extension.uppercase()
+}
+
+/** A job that waits for its turn or is paused: start it now, or take it out of the queue. */
+@Composable
+private fun QueuedJobCard(job: QueuedJob, onStartNow: () -> Unit, onRemove: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (job.paused) Icons.Outlined.Pause else Icons.Outlined.Schedule,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    job.request.displayName.substringBeforeLast('.'),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (job.paused) "На паузе · ${(job.progress * 100).toInt()} %" else "Ждёт своей очереди",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            IconButton(onClick = onStartNow) {
+                Icon(
+                    Icons.Outlined.PlayArrow,
+                    contentDescription = if (job.paused) "Продолжить" else "Начать сейчас",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Убрать из очереди",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
         }
     }
@@ -479,18 +646,26 @@ private fun ModelSetupCard(
     onDownload: () -> Unit,
     onChooseModels: () -> Unit,
 ) {
+    // The "fat" build copies the models out of its APK: no network, nothing to choose.
+    val installing = plan.all.any { (states[it.id] as? ModelState.Downloading)?.fromApk == true }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FennecMark(Modifier.size(36.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    if (plan.requiredMissing.isEmpty()) "Скачайте языковую модель" else "Скачайте модели для работы офлайн",
+                    when {
+                        installing -> "Устанавливаю встроенные модели"
+                        plan.requiredMissing.isEmpty() -> "Скачайте языковую модель"
+                        else -> "Скачайте модели для работы офлайн"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
             Text(
-                if (plan.requiredMissing.isEmpty()) {
+                if (installing) {
+                    "Модели лежат внутри приложения, интернет не нужен. Это делается один раз, потом они остаются на телефоне."
+                } else if (plan.requiredMissing.isEmpty()) {
                     "Языковая модель исправляет пунктуацию и явные ошибки и пишет выжимку с задачами. " +
                         "Без неё расшифровка работает, а выжимка строится по правилам."
                 } else {
@@ -554,7 +729,7 @@ private fun ModelSetupCard(
 }
 
 @Composable
-private fun JobProgressCard(state: JobState.Running, onCancel: () -> Unit) {
+private fun JobProgressCard(state: JobState.Running, onPause: () -> Unit, onCancel: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -567,7 +742,10 @@ private fun JobProgressCard(state: JobState.Running, onCancel: () -> Unit) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(state.progress.statusText(), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (state.pausing) "Ставлю на паузу…" else state.progress.statusText(),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
             LinearProgressIndicator(
@@ -576,17 +754,13 @@ private fun JobProgressCard(state: JobState.Running, onCancel: () -> Unit) {
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             )
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${(state.progress.overall * 100).toInt()} % · можно свернуть приложение",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
+            Text(
+                "${(state.progress.overall * 100).toInt()} % · можно свернуть приложение",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onPause, enabled = !state.pausing) { Text("Пауза") }
                 TextButton(onClick = onCancel) { Text("Отменить") }
             }
         }
@@ -594,7 +768,7 @@ private fun JobProgressCard(state: JobState.Running, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun JobFailedCard(state: JobState.Failed, onDismiss: () -> Unit, onOpenModels: () -> Unit) {
+private fun JobFailedCard(state: JobFailure, onDismiss: () -> Unit, onOpenModels: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

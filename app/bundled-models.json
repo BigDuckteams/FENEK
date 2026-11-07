@@ -1,0 +1,82 @@
+{
+  "_comment": "The models the 'fat' build carries inside its APK (assets/models/<id>/<file>): the default set for the default settings. Read by the fetchBundledModels task in build.gradle.kts and checked against ModelCatalog.bundledSet by BundledModelsManifestTest. Sizes are exact: a download that differs is rejected.",
+  "models": [
+    {
+      "id": "pyannote-segmentation-3.0",
+      "files": [
+        {
+          "name": "model.onnx",
+          "bytes": 5992913,
+          "urls": [
+            "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx",
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3dspeaker-eres2net-en",
+      "files": [
+        {
+          "name": "3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+          "bytes": 26485263,
+          "urls": [
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+            "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+            "https://hf-mirror.com/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gigaam-v3-rnnt-punct",
+      "files": [
+        {
+          "name": "encoder.int8.onnx",
+          "bytes": 224570820,
+          "urls": [
+            "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/encoder.int8.onnx",
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/encoder.int8.onnx"
+          ]
+        },
+        {
+          "name": "decoder.onnx",
+          "bytes": 4600132,
+          "urls": [
+            "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/decoder.onnx",
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/decoder.onnx"
+          ]
+        },
+        {
+          "name": "joiner.onnx",
+          "bytes": 2712896,
+          "urls": [
+            "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/joiner.onnx",
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/joiner.onnx"
+          ]
+        },
+        {
+          "name": "tokens.txt",
+          "bytes": 13354,
+          "urls": [
+            "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/tokens.txt",
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/main/tokens.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct-q4",
+      "files": [
+        {
+          "name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+          "bytes": 1117320736,
+          "urls": [
+            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -22,7 +22,11 @@
 ```bash
 ./gradlew assembleDebug
 ./gradlew testDebugUnitTest
+./gradlew releaseApks
 ```
+
+`releaseApks` собирает две универсальные подписанные версии в `dist/`: `FENEK-online-universal.apk`
+(модели скачиваются при первом запуске) и `FENEK-fat-universal.apk` (модели внутри APK).
 
 Конфигурационных файлов окружения у приложения нет, поэтому `config/example.env` из шаблона
 не используется.

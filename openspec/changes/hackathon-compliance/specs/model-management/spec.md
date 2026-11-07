@@ -32,6 +32,25 @@ The system SHALL NOT require a language model for a job to run; a missing LLM on
 - **WHEN** the LLM model is deleted and the user starts a transcription
 - **THEN** the transcription runs without correction and with rule-based highlights
 
+### Requirement: Bundled model set in the fat build
+The system SHALL, in the build that carries the default model set inside its APK (the "fat" build), copy those models into the app's model folder on the first launch without using the network, check them by size like downloaded ones, and show the progress as an installation. The build without bundled models SHALL keep downloading them.
+
+#### Scenario: First launch of the fat build
+- **WHEN** the fat build is opened for the first time, with or without a network
+- **THEN** the setup card reads "Устанавливаю встроенные модели" with progress, and when the copy ends the app transcribes with no network
+
+#### Scenario: Interrupted installation
+- **WHEN** the app is closed during the installation
+- **THEN** the next launch continues it and replaces the files that were not finished
+
+#### Scenario: Deleted model
+- **WHEN** the user deletes a bundled model and later asks for it again
+- **THEN** it is copied from the APK again, without a network, and it is not installed again by itself
+
+#### Scenario: Online build
+- **WHEN** the build without bundled models is used
+- **THEN** the models are downloaded as before
+
 ## MODIFIED Requirements
 
 ### Requirement: Model catalog

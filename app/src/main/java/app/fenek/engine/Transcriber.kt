@@ -45,7 +45,14 @@ class Transcriber(
         }
     }
 
-    override fun close() = recognizer.release()
+    private var closed = false
+
+    /** Safe to call twice: a paused job closes the recognizer early and the usual cleanup closes it again. */
+    override fun close() {
+        if (closed) return
+        closed = true
+        recognizer.release()
+    }
 
     companion object {
         fun buildConfig(spec: AsrSpec, dir: File, language: String, numThreads: Int): OfflineRecognizerConfig {

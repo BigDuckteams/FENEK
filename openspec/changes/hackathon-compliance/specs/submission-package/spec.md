@@ -88,12 +88,20 @@ The repository SHALL contain a command-line tool that reads a reference transcri
 - **THEN** it shows airplane mode enabled before processing starts
 
 ### Requirement: Release APK
-The submission SHALL include a release APK that is installable on an arm64 phone and, after the models have been downloaded once, runs the whole task without network access.
+The submission SHALL include two universal release APKs built from the same sources and signed with the same key: "online", which downloads the default models on the first launch, and "fat", which carries them and the default settings inside the APK. Both run the whole task without a network once the models are on the phone.
 
-#### Scenario: Fresh install, then offline
-- **WHEN** the APK is installed on a phone, the models are downloaded, and airplane mode is switched on
+#### Scenario: Online build, then offline
+- **WHEN** the online APK is installed on a phone, the models are downloaded, and airplane mode is switched on
 - **THEN** the app transcribes an imported recording completely and exports the JSON
+
+#### Scenario: Fat build offline from the start
+- **WHEN** the fat APK is installed on a phone that is in airplane mode and is opened
+- **THEN** the models are installed from the APK and the app transcribes an imported recording completely
+
+#### Scenario: One command
+- **WHEN** `./gradlew releaseApks` is run
+- **THEN** `dist/FENEK-online-universal.apk` and `dist/FENEK-fat-universal.apk` are produced, signed, ready to install
 
 #### Scenario: Warning before the check
 - **WHEN** the README or the limitations are read
-- **THEN** they tell the reader to open the app once with a network connection before an offline check
+- **THEN** they tell the reader to open the online build once with a network connection before an offline check, and that the fat build needs no network but about 3 GB of free space

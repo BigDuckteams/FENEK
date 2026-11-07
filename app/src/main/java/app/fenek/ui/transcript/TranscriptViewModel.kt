@@ -11,6 +11,7 @@ import app.fenek.data.defaultSpeakerName
 import app.fenek.data.withSegmentUpdated
 import app.fenek.engine.JobRequest
 import app.fenek.model.Languages
+import app.fenek.service.Enqueued
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -69,7 +70,8 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
 
     /**
      * Processes the same recording again with a given number of participants and replaces this
-     * transcript. Returns an error for the user, or null when processing has started.
+     * transcript. Returns an error for the user, or null when processing has started or was put
+     * in the queue behind the running job.
      */
     fun recount(numSpeakers: Int?): String? {
         val t = transcript.value ?: return "Расшифровка не найдена"
@@ -77,7 +79,7 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
         val isFile = audio.startsWith("/")
         if (isFile && !File(audio).isFile) return "Исходная запись удалена"
         player.pause()
-        val started = jobs.start(
+        val result = jobs.enqueue(
             JobRequest(
                 source = if (isFile) Uri.fromFile(File(audio)) else Uri.parse(audio),
                 displayName = t.sourceName,
@@ -90,7 +92,7 @@ class TranscriptViewModel(app: Application, private val id: String) : AndroidVie
                 title = t.title,
             ),
         )
-        return if (started) null else "Дождитесь окончания текущей расшифровки"
+        return if (result == Enqueued.DUPLICATE) "Эта расшифровка уже в очереди" else null
     }
 
     fun delete(onDeleted: () -> Unit) {

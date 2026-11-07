@@ -10,6 +10,7 @@ import app.fenek.data.TranscriptRepository
 import app.fenek.model.ModelCatalog
 import app.fenek.model.ModelInfo
 import app.fenek.model.ModelManager
+import app.fenek.model.ModelState
 import app.fenek.record.Recorder
 import app.fenek.llm.LlmCrashMarker
 import app.fenek.llm.LlmPostProcessor
@@ -21,6 +22,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.io.File
 
 class FenekApp : Application() {
@@ -62,6 +65,21 @@ class AppContainer(private val context: Context) {
 
     init {
         llmCrashNotice.value = crashMarker.recover(settings)
+        if (BuildConfig.BUNDLED_MODELS) installBundledModels()
+    }
+
+    /**
+     * The "fat" build puts the models from its APK in place on the first launch, with no network. After
+     * that a model the user deleted stays deleted until they ask for it again (that copies it too).
+     */
+    private fun installBundledModels() {
+        val marker = File(context.filesDir, "bundled-models-installed")
+        if (marker.exists()) return
+        download(ModelCatalog.bundledSet)
+        scope.launch {
+            models.states.first { states -> ModelCatalog.bundledSet.all { states[it.id] is ModelState.Ready } }
+            marker.writeText("1")
+        }
     }
 
     /** Models needed to process a recording with the current settings. */

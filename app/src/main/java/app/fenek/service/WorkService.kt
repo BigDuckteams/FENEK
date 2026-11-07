@@ -38,8 +38,18 @@ class WorkService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val container = appContainer
-        if (intent?.action == ACTION_CANCEL) container.jobs.cancel()
-        val notification = Notifications.work(this, container.jobs.state.value, downloads(container.models.states.value))
+        when (intent?.action) {
+            ACTION_CANCEL -> container.jobs.cancel()
+            ACTION_PAUSE -> container.jobs.pause()
+            ACTION_RESUME -> container.jobs.resumeFirstPaused()
+            ACTION_CANCEL_ALL -> container.jobs.cancelAll()
+        }
+        val notification = Notifications.work(
+            this,
+            container.jobs.state.value,
+            container.jobs.queue.value,
+            downloads(container.models.states.value),
+        )
         try {
             ServiceCompat.startForeground(this, Notifications.ID_WORK, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } catch (e: Exception) {
@@ -50,13 +60,21 @@ class WorkService : Service() {
         acquireWakeLock()
         if (observer == null) {
             observer = scope.launch {
-                combine(container.jobs.state, container.models.states) { job, states -> job to downloads(states) }
+                combine(container.jobs.state, container.jobs.queue, container.models.states) { job, queue, states ->
+                    Triple(job, queue, downloads(states))
+                }
                     .conflate()
-                    .collect { (job, downloads) ->
-                        if (job !is JobState.Running && downloads.isEmpty()) {
+                    .collect { (job, queue, downloads) ->
+                        if (job !is JobState.Running && queue.isEmpty() && downloads.isEmpty()) {
                             stopWork()
                         } else {
-                            Notifications.notify(this@WorkService, Notifications.ID_WORK, Notifications.work(this@WorkService, job, downloads))
+                            // Paused jobs only keep the process alive: nothing is computed, so no wake lock.
+                            if (job is JobState.Running || downloads.isNotEmpty()) acquireWakeLock() else releaseWakeLock()
+                            Notifications.notify(
+                                this@WorkService,
+                                Notifications.ID_WORK,
+                                Notifications.work(this@WorkService, job, queue, downloads),
+                            )
                             // The system drops notifications posted too often.
                             delay(700)
                         }
@@ -68,7 +86,7 @@ class WorkService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         // Android 15+ limits dataSync services to 6 hours a day.
-        appContainer.jobs.cancel()
+        appContainer.jobs.cancelAll()
         stopWork()
     }
 
@@ -105,6 +123,9 @@ class WorkService : Service() {
 
     companion object {
         const val ACTION_CANCEL = "app.fenek.action.CANCEL"
+        const val ACTION_PAUSE = "app.fenek.action.PAUSE"
+        const val ACTION_RESUME = "app.fenek.action.RESUME"
+        const val ACTION_CANCEL_ALL = "app.fenek.action.CANCEL_ALL"
         private const val TAG = "WorkService"
         private const val WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60 * 1000L
 

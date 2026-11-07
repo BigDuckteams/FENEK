@@ -53,23 +53,25 @@ class Diarizer(
      * @param numSpeakers the exact number of participants, if the user knows it
      * @param separation 0..1, higher values accept weaker evidence for one more participant
      *   when the number of participants is not given
+     * @param pause called between the pieces of work, where the job may wait for a resume
      * @return speech segments with speakers numbered 0, 1, … in order of first appearance
      */
     suspend fun run(
         pcm: PcmFile,
         numSpeakers: Int?,
         separation: Float,
+        pause: suspend () -> Unit = {},
         onProgress: (Float) -> Unit,
     ): List<SpeakerSegment> {
         val started = SystemClock.elapsedRealtime()
-        val segments = findSpeech(pcm) { onProgress(SPEECH_SHARE * it) }
+        val segments = findSpeech(pcm, pause) { onProgress(SPEECH_SHARE * it) }
         if (segments.isEmpty()) return emptyList()
         val speechMs = SystemClock.elapsedRealtime() - started
 
         val total = pcm.durationSec
         val runs = VoiceWindows.cleanRuns(segments, total)
         val candidates = VoiceWindows.windows(runs)
-        val fingerprints = fingerprints(pcm, candidates) { onProgress(SPEECH_SHARE + (1 - SPEECH_SHARE) * it) }
+        val fingerprints = fingerprints(pcm, candidates, pause) { onProgress(SPEECH_SHARE + (1 - SPEECH_SHARE) * it) }
         val windows = candidates.filterIndexed { i, _ -> fingerprints[i] != null }
         val vectors = fingerprints.filterNotNull()
 
@@ -93,11 +95,12 @@ class Diarizer(
     }
 
     /** Speech stretches of the whole recording; local speaker numbers are unique across blocks. */
-    private suspend fun findSpeech(pcm: PcmFile, onProgress: (Float) -> Unit): List<SpeakerSegment> {
+    private suspend fun findSpeech(pcm: PcmFile, pause: suspend () -> Unit, onProgress: (Float) -> Unit): List<SpeakerSegment> {
         val blocks = planBlocks(pcm)
         val segments = ArrayList<SpeakerSegment>()
         for ((index, block) in blocks.withIndex()) {
             currentCoroutineContext().ensureActive()
+            pause()
             val base = index.toFloat() / blocks.size
             val span = 1f / blocks.size
             onProgress(base + span * 0.02f)
@@ -122,6 +125,7 @@ class Diarizer(
     private suspend fun fingerprints(
         pcm: PcmFile,
         windows: List<VoiceWindows.Window>,
+        pause: suspend () -> Unit,
         onProgress: (Float) -> Unit,
     ): List<FloatArray?> {
         val result = ArrayList<FloatArray?>(windows.size)
@@ -129,6 +133,8 @@ class Diarizer(
         var chunk = FloatArray(0)
         for ((i, window) in windows.withIndex()) {
             currentCoroutineContext().ensureActive()
+            // Windows are short: look for a pause request every few of them.
+            if (i % PROGRESS_EVERY == 0) pause()
             if (window.end > chunkStart + CHUNK_SECONDS || window.start < chunkStart) {
                 chunkStart = window.start
                 chunk = pcm.readSeconds(chunkStart, chunkStart + CHUNK_SECONDS)

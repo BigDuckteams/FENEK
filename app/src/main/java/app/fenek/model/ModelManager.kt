@@ -1,11 +1,13 @@
 package app.fenek.model
 
 import android.content.Context
+import app.fenek.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +17,8 @@ import java.io.File
 
 sealed interface ModelState {
     data object Missing : ModelState
-    data class Downloading(val bytes: Long, val total: Long) : ModelState {
+    /** [fromApk]: the files are copied out of the APK (the "fat" build), no network is used. */
+    data class Downloading(val bytes: Long, val total: Long, val fromApk: Boolean = false) : ModelState {
         val fraction: Float get() = if (total > 0) (bytes.toFloat() / total).coerceIn(0f, 1f) else 0f
     }
     data object Ready : ModelState
@@ -26,6 +29,9 @@ class ModelManager(context: Context, private val scope: CoroutineScope) {
 
     private val root = File(context.filesDir, "models")
     private val jobs = HashMap<String, Job>()
+
+    /** Models inside the APK, in the "fat" build only: "download" then copies them instead of using the network. */
+    private val bundled: BundledModels? = if (BuildConfig.BUNDLED_MODELS) BundledModels(context.assets) else null
 
     init {
         // Models that left the catalog (such as the old speaker model) only take up space.
@@ -61,7 +67,7 @@ class ModelManager(context: Context, private val scope: CoroutineScope) {
                 setState(model, ModelState.Ready)
                 return
             }
-            setState(model, ModelState.Downloading(bytesOnDisk(model), model.totalBytes))
+            setState(model, ModelState.Downloading(bytesOnDisk(model), model.totalBytes, fromApk = bundled?.has(model) == true))
             jobs[model.id] = scope.launch(Dispatchers.IO) { runDownload(model) }
         }
     }
@@ -92,17 +98,24 @@ class ModelManager(context: Context, private val scope: CoroutineScope) {
             if (dir.usableSpace < remaining + FREE_SPACE_RESERVE) {
                 throw DownloadException("Недостаточно места: нужно ещё ${remaining / 1_000_000 + 1} МБ")
             }
+            val fromApk = bundled?.has(model) == true
             var done = 0L
             for (file in model.files) {
                 val target = File(dir, file.name)
                 if (!(target.isFile && target.length() == file.sizeBytes)) {
                     val before = done
-                    Downloader.download(file, target) { bytes ->
-                        setState(model, ModelState.Downloading(before + bytes, total))
+                    if (bundled?.has(model, file) == true) {
+                        install(bundled, model, file, target) { bytes ->
+                            setState(model, ModelState.Downloading(before + bytes, total, fromApk))
+                        }
+                    } else {
+                        Downloader.download(file, target) { bytes ->
+                            setState(model, ModelState.Downloading(before + bytes, total, fromApk))
+                        }
                     }
                 }
                 done += file.sizeBytes
-                setState(model, ModelState.Downloading(done, total))
+                setState(model, ModelState.Downloading(done, total, fromApk))
             }
             setState(model, if (isReady(model)) ModelState.Ready else ModelState.Failed("Файлы модели повреждены"))
         } catch (e: CancellationException) {
@@ -117,11 +130,37 @@ class ModelManager(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Copies a file out of the APK; the exact size is checked like that of a download. */
+    private suspend fun install(source: BundledModels, model: ModelInfo, file: RemoteFile, target: File, onBytes: (Long) -> Unit) {
+        val partial = File(target.path + ".part")
+        partial.delete()
+        source.open(model, file).use { input ->
+            partial.outputStream().use { output ->
+                val buffer = ByteArray(COPY_BUFFER)
+                var copied = 0L
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    copied += read
+                    onBytes(copied)
+                }
+            }
+        }
+        if (partial.length() != file.sizeBytes) {
+            partial.delete()
+            throw DownloadException("Встроенный файл ${file.name} повреждён")
+        }
+        if (!partial.renameTo(target)) throw DownloadException("Не удалось сохранить ${file.name}")
+    }
+
     private fun setState(model: ModelInfo, state: ModelState) {
         _states.update { it + (model.id to state) }
     }
 
     private companion object {
         const val FREE_SPACE_RESERVE = 100L * 1024 * 1024
+        const val COPY_BUFFER = 1 shl 20
     }
 }

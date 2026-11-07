@@ -272,6 +272,12 @@ object ModelCatalog {
     val defaultEmbedding = eres2net
     val defaultLlm = qwen15
 
+    /**
+     * What the "fat" build carries inside its APK: the default set for the default settings.
+     * `app/bundled-models.json` lists the same files for the build; a test keeps the two equal.
+     */
+    val bundledSet = listOf(segmentation, defaultEmbedding, defaultAsr, defaultLlm)
+
     fun asr(id: String): ModelInfo = asrModels.firstOrNull { it.id == id } ?: defaultAsr
 
     fun embedding(id: String): ModelInfo = embeddingModels.firstOrNull { it.id == id } ?: defaultEmbedding

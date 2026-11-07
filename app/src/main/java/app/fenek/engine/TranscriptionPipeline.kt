@@ -73,11 +73,15 @@ class TranscriptionPipeline(
     /**
      * @param keepPending stores a recoverable copy of the transcript before the language model
      *   starts, so that a crash in the model does not lose the recognition
+     * @param gate where the job can be paused: between the stages, between the pieces of speaker
+     *   detection and between phrases. The language model stages are not interrupted, so that the
+     *   model is not kept in memory while the job waits.
      */
     suspend fun run(
         request: JobRequest,
         onProgress: (JobProgress) -> Unit,
         keepPending: (Transcript) -> Unit = {},
+        gate: PauseGate = PauseGate(),
     ): Transcript {
         val startedAt = System.currentTimeMillis()
         val asrModel = ModelCatalog.asr(request.asrModelId)
@@ -124,11 +128,13 @@ class TranscriptionPipeline(
                 // untranscribed recordings all work with plain files.
                 audioRef = request.source.takeIf { it.scheme == "file" }?.path ?: request.source.toString()
             }
+            gate.checkpoint()
 
             val pcm = timed("decoding") {
                 AudioDecoder.decode(context, decodeUri, pcmFile) { report(Stage.DECODING, it) }
             }
             if (pcm.durationSec < MIN_RECORDING_SECONDS) throw AudioDecodeException("Запись пустая или слишком короткая")
+            gate.checkpoint()
 
             report(Stage.DIARIZING, 0f)
             val diarized = timed("diarization") {
@@ -138,9 +144,12 @@ class TranscriptionPipeline(
                     numThreads = settings.numThreads,
                     windowShiftRatio = settings.diarizationQuality.windowShiftRatio,
                 ).use { diarizer ->
-                    diarizer.run(pcm, request.numSpeakers, settings.speakerSeparation) { report(Stage.DIARIZING, it) }
+                    diarizer.run(pcm, request.numSpeakers, settings.speakerSeparation, pause = gate::checkpoint) {
+                        report(Stage.DIARIZING, it)
+                    }
                 }
             }
+            gate.checkpoint()
 
             val turns = TurnBuilder.build(diarized)
             val chunks = TurnBuilder.splitLongTurns(turns, MAX_CHUNK_SECONDS) { from, to ->
@@ -162,6 +171,12 @@ class TranscriptionPipeline(
             try {
                 for ((index, chunk) in chunks.withIndex()) {
                     currentCoroutineContext().ensureActive()
+                    if (gate.pauseRequested) {
+                        // The recognizer is released while the job waits and made again on resume.
+                        transcriber.close()
+                        gate.checkpoint()
+                        transcriber = Transcriber(spec, models.dir(asrModel), language ?: request.language, settings.numThreads)
+                    }
                     val from = (chunk.start - PADDING_SECONDS).coerceAtLeast(0.0)
                     val to = (chunk.end + PADDING_SECONDS).coerceAtMost(pcm.durationSec)
                     val result = transcriber.transcribe(pcm.readSeconds(from, to))
@@ -217,10 +232,13 @@ class TranscriptionPipeline(
                 return recognized
             }
             // The recognizer is closed by now; only the language model is loaded from here on.
+            gate.checkpoint()
             keepPending(recognized)
             val improved = llm.process(recognized, llmPlan, settings.numThreads) { stage, fraction, done, total ->
                 report(if (stage == LlmStage.CORRECTING) Stage.CORRECTING else Stage.SUMMARIZING, fraction, done, total)
             }
+            // A pause asked for during the language model stages takes effect here.
+            gate.checkpoint()
             report(Stage.SAVING, 0f)
             return improved.copy(processingMs = System.currentTimeMillis() - startedAt)
         } catch (e: Throwable) {
